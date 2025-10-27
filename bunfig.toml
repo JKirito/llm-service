@@ -1,0 +1,39 @@
+[install]
+# Enable workspaces
+workspace = true
+
+# Cache configuration
+cache = true
+cache-dir = ".bun-cache"
+
+# Registry configuration
+registry = "https://registry.npmjs.org/"
+
+# Lockfile configuration
+lockfile = true
+lockfile-version = 1
+
+[install.scopes]
+"@llm-service" = { workspace = true }
+"@llm-apps" = { workspace = true }
+
+[run]
+# Default script to run when no script is specified
+default = "dev"
+
+# Environment variables for all scripts
+env = { NODE_ENV = "development" }
+
+[test]
+# Test configuration
+preload = ["./scripts/test-setup.ts"]
+coverage = true
+coverageDir = "./coverage"
+
+[build]
+# Build configuration
+target = "bun"
+outdir = "./dist"
+
+# TypeScript configuration
+tsconfig = "./tsconfig.json"

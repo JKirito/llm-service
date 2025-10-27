@@ -1,0 +1,26 @@
+{
+  "name": "@llm-service/types",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types for the LLM service monorepo",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "dev": "bun --watch src/index.ts",
+    "test": "bun test",
+    "lint": "bun run lint:eslint && bun run lint:prettier",
+    "lint:eslint": "eslint src --ext .ts,.tsx",
+    "lint:prettier": "prettier --check src",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@llm-service/eslint-config": "workspace:*"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "llm-service-monorepo",
+  "version": "1.0.0",
+  "description": "A Bun monorepo for LLM services",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*"
+  ],
+  "scripts": {
+    "build": "bun run build:packages && bun run build:apps",
+    "build:packages": "bun run build --filter=\"@llm-service/*\"",
+    "build:apps": "bun run build --filter=\"@llm-apps/*\"",
+    "dev": "bun run --filter=\"@llm-apps/*\" dev",
+    "test": "bun run test --filter=\"*\"",
+    "lint": "bun run lint --filter=\"*\"",
+    "clean": "bun run clean --filter=\"*\" && rm -rf node_modules",
+    "typecheck": "bun run typecheck --filter=\"*\"",
+    "bootstrap": "bun install"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.5.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.3.0"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "packageManager": "bun@1.1.0"
+}

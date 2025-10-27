@@ -1,0 +1,25 @@
+{
+  "name": "@llm-apps/web-app",
+  "version": "1.0.0",
+  "description": "Web application for the LLM service",
+  "private": true,
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "start": "bun dist/index.js",
+    "test": "bun test",
+    "lint": "bun run lint:eslint && bun run lint:prettier",
+    "lint:eslint": "eslint src --ext .ts,.tsx",
+    "lint:prettier": "prettier --check src",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@llm-service/shared-utils": "workspace:*",
+    "elysia": "^1.1.0"
+  },
+  "devDependencies": {
+    "@llm-service/eslint-config": "workspace:*",
+    "@types/bun": "^1.1.0"
+  }
+}

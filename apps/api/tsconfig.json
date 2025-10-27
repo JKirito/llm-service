@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "composite": true,
+    "noEmit": false,
+    "paths": {
+      "@llm-service/shared-utils": ["../../packages/shared-utils/src"],
+      "@llm-service/logger": ["../../packages/logger/src"],
+      "@llm-service/types": ["../../packages/types/src"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules", "**/*.test.ts"],
+  "references": [
+    { "path": "../../packages/shared-utils" },
+    { "path": "../../packages/logger" },
+    { "path": "../../packages/types" }
+  ]
+}
