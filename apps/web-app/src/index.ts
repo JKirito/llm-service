@@ -1,18 +1,34 @@
-import { Elysia } from 'elysia';
 import { Logger, formatMessage } from '@llm-service/shared-utils';
 
 const logger = new Logger('WebApp');
 
-const app = new Elysia()
-  .get('/', () => {
-    logger.info('Serving root route');
-    return { message: 'Welcome to LLM Service Web App' };
-  })
-  .get('/health', () => {
-    return { status: 'ok', timestamp: new Date().toISOString() };
-  })
-  .listen(3000);
+const port = parseInt(process.env.WEB_PORT || process.env.PORT || '3000');
+const host = process.env.HOST || 'localhost';
 
-logger.info(formatMessage('Server started on http://localhost:3000'));
+const server = Bun.serve({
+  port,
+  hostname: host,
+  fetch(req: Request) {
+    const url = new URL(req.url);
+    
+    logger.info(`Serving ${url.pathname}`);
 
-export default app;
+    switch (url.pathname) {
+      case '/':
+        return Response.json({ 
+          message: 'Welcome to LLM Service Web App' 
+        });
+      
+      case '/health':
+        return Response.json({ 
+          status: 'ok', 
+          timestamp: new Date().toISOString() 
+        });
+      
+      default:
+        return new Response('Not Found', { status: 404 });
+    }
+  },
+});
+
+logger.info(formatMessage(`Web server started on http://${host}:${port}`));

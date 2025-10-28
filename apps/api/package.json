@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "build": "bun build ./src/index.ts --outdir ./dist --target bun",
-    "start": "bun dist/index.js",
+    "start": "bun src/index.ts",
     "test": "bun test",
     "lint": "bun run lint:eslint && bun run lint:prettier",
     "lint:eslint": "eslint src --ext .ts,.tsx",
@@ -17,8 +17,7 @@
   "dependencies": {
     "@llm-service/shared-utils": "workspace:*",
     "@llm-service/logger": "workspace:*",
-    "@llm-service/types": "workspace:*",
-    "elysia": "^1.1.0"
+    "@llm-service/types": "workspace:*"
   },
   "devDependencies": {
     "@llm-service/eslint-config": "workspace:*",

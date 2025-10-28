@@ -15,8 +15,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@llm-service/shared-utils": "workspace:*",
-    "elysia": "^1.1.0"
+    "@llm-service/shared-utils": "workspace:*"
   },
   "devDependencies": {
     "@llm-service/eslint-config": "workspace:*",

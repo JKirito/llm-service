@@ -22,7 +22,7 @@ lockfile-version = 1
 default = "dev"
 
 # Environment variables for all scripts
-env = { NODE_ENV = "development" }
+env = { NODE_ENV = "development", PORT = "3002" }
 
 [test]
 # Test configuration
