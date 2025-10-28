@@ -19,7 +19,7 @@
     "start:api": "bun run --filter=\"@llm-apps/api\" start",
     "start:web": "bun run --filter=\"@llm-apps/web-app\" start",
     "test": "bun run test --filter=\"*\"",
-    "lint": "bun run lint --filter=\"*\"",
+    "lint": "eslint . --ext .ts,.tsx",
     "clean": "bun run clean --filter=\"*\" && rm -rf node_modules",
     "typecheck": "bun run typecheck --filter=\"*\"",
     "bootstrap": "bun install"
