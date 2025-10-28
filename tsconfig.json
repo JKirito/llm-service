@@ -42,7 +42,6 @@
     { "path": "./packages/types" },
     { "path": "./packages/logger" },
     { "path": "./apps/web-app" },
-    { "path": "./apps/api" },
-    { "path": "./tools/eslint-config" }
+    { "path": "./apps/api" }
   ]
 }

@@ -13,12 +13,12 @@ export interface User {
 export interface Message {
   id: string;
   content: string;
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   timestamp: Date;
   userId: string;
 }
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -26,7 +26,7 @@ export interface ApiResponse<T = any> {
 }
 
 export interface LogLevel {
-  level: 'debug' | 'info' | 'warn' | 'error';
+  level: "debug" | "info" | "warn" | "error";
   message: string;
   timestamp: Date;
   context?: string;

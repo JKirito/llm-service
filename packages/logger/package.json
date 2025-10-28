@@ -23,7 +23,5 @@
   "dependencies": {
     "@llm-service/types": "workspace:*"
   },
-  "devDependencies": {
-    "@llm-service/eslint-config": "workspace:*"
-  }
+  "devDependencies": {}
 }

@@ -20,7 +20,5 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
-  "devDependencies": {
-    "@llm-service/eslint-config": "workspace:*"
-  }
+  "devDependencies": {}
 }
