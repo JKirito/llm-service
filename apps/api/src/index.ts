@@ -1,6 +1,5 @@
 import { createLogger } from "@llm-service/logger";
 import type { ApiResponse } from "@llm-service/types";
-import { formatMessage } from "@llm-service/shared-utils";
 
 const logger = createLogger("API");
 
@@ -44,4 +43,4 @@ Bun.serve({
   },
 });
 
-logger.info(formatMessage(`API server started on http://${host}:${port}`));
+logger.info(`API server started on http://${host}:${port}`);

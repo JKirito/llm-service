@@ -21,7 +21,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@llm-service/types": "workspace:*"
+    "@llm-service/types": "workspace:*",
+    "winston": "^3.11.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/winston": "^2.4.4"
+  }
 }

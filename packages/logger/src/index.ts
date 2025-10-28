@@ -1,50 +1,45 @@
-import type { LogLevel } from "@llm-service/types";
+import winston from "winston";
 
 export class Logger {
-  constructor(private context: string) {}
+  private winston: winston.Logger;
 
-  private log(
-    level: LogLevel["level"],
-    message: string,
-    ...args: unknown[]
-  ): void {
-    const logEntry: LogLevel = {
-      level,
-      message,
-      timestamp: new Date(),
-      context: this.context,
-    };
-
-    const formattedMessage = `[${logEntry.timestamp.toISOString()}] [${level.toUpperCase()}] [${this.context}] ${message}`;
-
-    switch (level) {
-      case "debug":
-      case "info":
-        console.log(formattedMessage, ...args);
-        break;
-      case "warn":
-        console.warn(formattedMessage, ...args);
-        break;
-      case "error":
-        console.error(formattedMessage, ...args);
-        break;
-    }
+  constructor(context: string) {
+    this.winston = winston.createLogger({
+      level: "info",
+      format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.errors({ stack: true }),
+        winston.format.json(),
+      ),
+      defaultMeta: { context },
+      transports: [
+        new winston.transports.Console({
+          format: winston.format.combine(
+            winston.format.colorize({ all: true }),
+            winston.format.timestamp(),
+            winston.format.printf(({ timestamp, level, message, context }) => {
+              return `${timestamp} [${level}] [${context}] ${message}`;
+            }),
+          ),
+        }),
+      ],
+    });
   }
 
   debug(message: string, ...args: unknown[]): void {
-    this.log("debug", message, ...args);
+    this.winston.debug(message, ...args);
   }
 
   info(message: string, ...args: unknown[]): void {
-    this.log("info", message, ...args);
+    this.winston.info(message, ...args);
   }
 
   warn(message: string, ...args: unknown[]): void {
-    this.log("warn", message, ...args);
+    this.winston.warn(message, ...args);
   }
 
   error(message: string, ...args: unknown[]): void {
-    this.log("error", message, ...args);
+    this.winston.error(message, ...args);
   }
 }
 
