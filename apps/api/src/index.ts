@@ -1,46 +1,30 @@
 import { createLogger } from "@llm-service/logger";
-import type { ApiResponse } from "@llm-service/types";
+import { handleRequest } from "./router";
+import { config } from "./config";
+import { getDatabase } from "./lib/mongodb";
 
 const logger = createLogger("API");
 
-const port = parseInt(process.env.API_PORT || process.env.PORT || "4000");
-const host = process.env.HOST || "localhost";
+async function startServer(): Promise<void> {
+  try {
+    await getDatabase();
+  } catch (error) {
+    logger.error("Failed to establish initial MongoDB connection", error);
+    throw error;
+  }
 
-Bun.serve({
-  port,
-  hostname: host,
-  fetch(req: Request) {
-    const url = new URL(req.url);
+  Bun.serve({
+    port: config.server.port,
+    hostname: config.server.host,
+    fetch: handleRequest,
+  });
 
-    logger.info(`${req.method} ${url.pathname}`);
+  logger.info(
+    `API server started on http://${config.server.host}:${config.server.port}`,
+  );
+}
 
-    switch (url.pathname) {
-      case "/":
-        const response: ApiResponse = {
-          success: true,
-          message: "LLM Service API is running",
-        };
-        return Response.json(response);
-
-      case "/health":
-        return Response.json({
-          status: "ok",
-          timestamp: new Date().toISOString(),
-        });
-
-      case "/api/users":
-        logger.info("Fetching users");
-        const usersResponse: ApiResponse = {
-          success: true,
-          data: [],
-          message: "Users retrieved successfully",
-        };
-        return Response.json(usersResponse);
-
-      default:
-        return new Response("Not Found", { status: 404 });
-    }
-  },
+startServer().catch((error) => {
+  logger.error("Server failed to start", error);
+  process.exit(1);
 });
-
-logger.info(`API server started on http://${host}:${port}`);

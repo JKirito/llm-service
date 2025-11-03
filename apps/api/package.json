@@ -4,9 +4,9 @@
   "description": "API service for the LLM service monorepo",
   "private": true,
   "scripts": {
-    "dev": "bun --watch src/index.ts",
+    "dev": "bun --env-file ../../.env --watch src/index.ts",
     "build": "bun build ./src/index.ts --outdir ./dist --target bun",
-    "start": "bun src/index.ts",
+    "start": "bun --env-file ../../.env src/index.ts",
     "test": "bun test",
     "lint": "bun run lint:eslint && bun run lint:prettier",
     "lint:eslint": "eslint src --ext .ts,.tsx",
@@ -15,9 +15,13 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^2.0.56",
     "@llm-service/shared-utils": "workspace:*",
     "@llm-service/logger": "workspace:*",
-    "@llm-service/types": "workspace:*"
+    "@llm-service/types": "workspace:*",
+    "@llm-service/azure-storage": "workspace:*",
+    "ai": "^5.0.68",
+    "mongodb": "^6.9.0"
   },
   "devDependencies": {
     "@types/bun": "^1.1.0"

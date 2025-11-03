@@ -58,3 +58,13 @@ temp/
 
 # Bun
 bun.lockb
+dist/
+*.tsbuildinfo
+
+# Build outputs
+build/
+out/
+
+# Coverage reports
+coverage/
+*.lcov

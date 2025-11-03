@@ -1,0 +1,76 @@
+version: '3.8'
+
+name: llm-service
+
+services:
+  # MongoDB service
+  mongodb:
+    image: mongo:7.0
+    container_name: llm-service-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: llm-service
+    volumes:
+      - llm-service_mongodb_data:/data/db
+      - llm-service_mongodb_config:/data/configdb
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - llm-service_network
+
+  # API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm-service-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-4000}:4000"
+    environment:
+      # Server config
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 4000
+      HOST: 0.0.0.0
+      API_PORT: ${API_PORT:-4000}
+      
+      # MongoDB config
+      MONGODB_URI: mongodb://mongodb:27017/llm-service
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-llm-service}
+      
+      # Azure Storage config
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING}
+      
+      # OpenAI config
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-nano}
+      
+      # Image generation config
+      IMAGE_CONTAINER_NAME: ${IMAGE_CONTAINER_NAME:-generated-images}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - llm-service_network
+    healthcheck:
+      test: ["CMD", "bun", "-e", "await fetch('http://localhost:4000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  llm-service_mongodb_data:
+    driver: local
+  llm-service_mongodb_config:
+    driver: local
+
+networks:
+  llm-service_network:
+    driver: bridge
+

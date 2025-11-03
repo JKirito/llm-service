@@ -1,0 +1,56 @@
+# Dependencies
+node_modules
+**/node_modules
+**/dist
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Documentation
+docs
+*.md
+!README.md
+
+# Scripts (not needed in production)
+scripts
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+**/test
+**/tests
+
+# Build artifacts
+*.tsbuildinfo
+**/tsconfig.tsbuildinfo
+
+# Logs
+*.log
+logs
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+coverage
+.nyc_output
+

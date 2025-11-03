@@ -1,16 +1,18 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "outDir": "./dist",
     "composite": true,
+    "noEmit": false,
+    "outDir": "./dist",
     "declaration": true,
     "declarationMap": true,
-    "noEmit": false,
+    "sourceMap": true,
     "rootDir": "./src"
   },
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "**/*.test.ts"],
+  "exclude": ["dist", "node_modules"],
   "references": [
-    { "path": "../../packages/types" }
+    { "path": "../../packages/types" },
+    { "path": "../../packages/logger" }
   ]
 }

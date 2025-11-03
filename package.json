@@ -11,14 +11,17 @@
   ],
   "scripts": {
     "build": "bun run build:packages && bun run build:apps",
-    "build:packages": "bun run build --filter=\"@llm-service/*\"",
-    "build:apps": "bun run build --filter=\"@llm-apps/*\"",
+    "build:packages": "bun tsc --build packages/*/tsconfig.json",
+    "build:apps": "bun run --filter=\"@llm-apps/api\" build && bun run --filter=\"@llm-apps/web-app\" build",
     "dev": "bun run --filter=\"@llm-apps/api\" dev & bun run --filter=\"@llm-apps/web-app\" dev",
     "dev:api": "bun run --filter=\"@llm-apps/api\" dev",
     "dev:web": "bun run --filter=\"@llm-apps/web-app\" dev",
     "start:api": "bun run --filter=\"@llm-apps/api\" start",
     "start:web": "bun run --filter=\"@llm-apps/web-app\" start",
     "test": "bun run test --filter=\"*\"",
+    "test:docs": "bun scripts/test-document-flow.ts",
+    "test:quick": "bun scripts/test-quick.ts",
+    "test:edge": "bun scripts/test-edge-cases.ts",
     "lint": "eslint . --ext .ts,.tsx",
     "clean": "bun run clean --filter=\"*\" && rm -rf node_modules",
     "typecheck": "bun run typecheck --filter=\"*\"",
@@ -35,7 +38,7 @@
     "typescript": "^5.5.0"
   },
   "engines": {
-    "bun": ">=1.1.0"
+    "bun": ">=1.3.0"
   },
-  "packageManager": "bun@1.1.0"
+  "packageManager": "bun@1.3.1"
 }

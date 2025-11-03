@@ -25,11 +25,7 @@
       "@llm-apps/*": ["./apps/*/src"]
     }
   },
-  "include": [
-    "packages/*/src/**/*",
-    "apps/*/src/**/*",
-    "tools/*/src/**/*"
-  ],
+  "include": ["packages/*/src/**/*", "apps/*/src/**/*", "tools/*/src/**/*"],
   "exclude": [
     "node_modules",
     "dist",
@@ -41,6 +37,7 @@
     { "path": "./packages/shared-utils" },
     { "path": "./packages/types" },
     { "path": "./packages/logger" },
+    { "path": "./packages/azure-storage" },
     { "path": "./apps/web-app" },
     { "path": "./apps/api" }
   ]

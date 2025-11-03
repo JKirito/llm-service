@@ -1,0 +1,30 @@
+{
+  "name": "@llm-service/azure-storage",
+  "version": "1.0.0",
+  "description": "Azure Storage utilities for LLM Service",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:bun": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@azure/storage-blob": "^12.17.0"
+  },
+  "devDependencies": {
+    "@llm-service/types": "workspace:*",
+    "@llm-service/logger": "workspace:*",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@llm-service/types": "workspace:*",
+    "@llm-service/logger": "workspace:*"
+  }
+}

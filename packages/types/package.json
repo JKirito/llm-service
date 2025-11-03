@@ -11,8 +11,9 @@
     }
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
-    "dev": "bun --watch src/index.ts",
+    "build": "tsc",
+    "build:bun": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "dev": "tsc --watch",
     "test": "bun test",
     "lint": "bun run lint:eslint && bun run lint:prettier",
     "lint:eslint": "eslint src --ext .ts,.tsx",
