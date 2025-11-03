@@ -4,11 +4,147 @@
 
 All API endpoints are prefixed with `/api`.
 
-**Base URL:** `http://localhost:4000/api`
+**Local Development (Direct Access):** `http://localhost:4000/api`  
+**Docker/Nginx Access:** `http://localhost/api` (requires Basic Authentication)
 
 ## Authentication
 
-Currently, the API does not require authentication. All endpoints are publicly accessible.
+When running via Docker with Nginx (production setup), all API endpoints require **Basic Authentication**.
+
+### Basic Authentication
+
+Include credentials in your requests:
+
+**Using curl:**
+```bash
+curl -u username:password http://localhost/api/health
+```
+
+**Using JavaScript/TypeScript:**
+```javascript
+fetch('http://localhost/api/health', {
+  headers: {
+    'Authorization': 'Basic ' + btoa('username:password')
+  }
+})
+```
+
+**Using Python:**
+```python
+import requests
+from requests.auth import HTTPBasicAuth
+
+response = requests.get(
+    'http://localhost/api/health',
+    auth=HTTPBasicAuth('username', 'password')
+)
+```
+
+### Setting Up Credentials
+
+See [Docker Documentation](DOCKER.md#basic-authentication-setup) for instructions on generating Basic Auth credentials.
+
+**Note:** In development mode, the API is accessible both:
+- Through Nginx on port 80 (requires Basic Auth)
+- Directly on port 4000 (no auth, for debugging)
+
+## Rate Limiting
+
+The API implements rate limiting to protect expensive endpoints from abuse. Rate limits are enforced per IP address using a sliding window algorithm.
+
+### Rate Limit Headers
+
+All responses include rate limit headers:
+
+- `X-RateLimit-Limit`: Maximum number of requests allowed in the time window
+- `X-RateLimit-Remaining`: Number of requests remaining in the current window
+- `X-RateLimit-Reset`: Unix timestamp (seconds) when the rate limit resets
+
+### Rate Limit by Endpoint
+
+#### High Priority (Expensive Operations)
+- **POST /api/v1/files/upload**: 20 requests/hour per IP
+- **POST /api/v1/llm/answers**: 60 requests/hour per IP
+- **POST /api/v1/llm/images**: 10 requests/hour per IP
+
+#### Medium Priority (Moderate Operations)
+- **GET /api/v1/files/download/***: 200 requests/hour per IP
+- **POST /api/v1/files/signed-url**: 100 requests/hour per IP
+- **DELETE /api/v1/files/***: 50 requests/hour per IP
+
+#### Low Priority (Lightweight Operations)
+- **GET /api/v1/llm/tools**: 300 requests/hour per IP
+- **GET /api/v1/users**: 300 requests/hour per IP
+
+#### Exempt (No Rate Limiting)
+- **GET /api**: No limit
+- **GET /api/health**: No limit
+
+### Rate Limit Exceeded Response
+
+When rate limit is exceeded, the API returns `429 Too Many Requests`:
+
+**Response:**
+```json
+{
+  "success": false,
+  "error": "Rate limit exceeded. Please try again later."
+}
+```
+
+**Headers:**
+```
+HTTP/1.1 429 Too Many Requests
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1731234567
+Retry-After: 3600
+```
+
+### Checking Rate Limit Status
+
+You can check your current rate limit status by examining the response headers:
+
+```bash
+curl -u username:password -i http://localhost/api/v1/llm/answers \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Hello"}'
+
+# Response headers will include:
+# X-RateLimit-Limit: 60
+# X-RateLimit-Remaining: 59
+# X-RateLimit-Reset: 1731234567
+```
+
+### Best Practices
+
+1. **Handle 429 responses gracefully**: Implement exponential backoff when rate limited
+2. **Monitor rate limit headers**: Track remaining requests to avoid hitting limits
+3. **Use appropriate endpoints**: Use lightweight endpoints (like `/api/v1/llm/tools`) when possible
+4. **Batch operations**: Combine multiple operations when possible to reduce request count
+
+### Example: Handling Rate Limits
+
+```javascript
+async function makeRequest(url, options) {
+  const response = await fetch(url, options);
+  
+  if (response.status === 429) {
+    const retryAfter = response.headers.get('Retry-After');
+    const resetTime = response.headers.get('X-RateLimit-Reset');
+    
+    console.log(`Rate limited. Retry after ${retryAfter} seconds`);
+    console.log(`Rate limit resets at: ${new Date(resetTime * 1000)}`);
+    
+    // Wait and retry
+    await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+    return makeRequest(url, options);
+  }
+  
+  return response;
+}
+```
 
 ## Response Format
 
@@ -38,7 +174,9 @@ Error responses follow the standard format:
 
 - `200 OK` - Request succeeded
 - `400 Bad Request` - Invalid request parameters
+- `401 Unauthorized` - Authentication required or invalid credentials
 - `404 Not Found` - Resource not found
+- `429 Too Many Requests` - Rate limit exceeded
 - `500 Internal Server Error` - Server error
 
 ---
@@ -302,6 +440,16 @@ Server-Sent Events (SSE) stream with `Content-Type: text/event-stream`.
 
 **Example - Non-Streaming:**
 ```bash
+# Through Nginx (production/Docker - requires Basic Auth)
+curl -u username:password -X POST http://localhost/api/v1/llm/answers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "What is artificial intelligence?",
+    "model": "gpt-5-nano",
+    "stream": false
+  }'
+
+# Direct access (development only - no auth)
 curl -X POST http://localhost:4000/api/v1/llm/answers \
   -H "Content-Type: application/json" \
   -d '{
@@ -313,6 +461,16 @@ curl -X POST http://localhost:4000/api/v1/llm/answers \
 
 **Example - With Documents:**
 ```bash
+# Through Nginx (production/Docker - requires Basic Auth)
+curl -u username:password -X POST http://localhost/api/v1/llm/answers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Summarize this document",
+    "documentReferences": ["documents/report.pdf"],
+    "stream": false
+  }'
+
+# Direct access (development only)
 curl -X POST http://localhost:4000/api/v1/llm/answers \
   -H "Content-Type: application/json" \
   -d '{
@@ -324,6 +482,16 @@ curl -X POST http://localhost:4000/api/v1/llm/answers \
 
 **Example - With Tools:**
 ```bash
+# Through Nginx (production/Docker - requires Basic Auth)
+curl -u username:password -X POST http://localhost/api/v1/llm/answers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "What is the latest news about AI?",
+    "tools": ["web_search"],
+    "stream": false
+  }'
+
+# Direct access (development only)
 curl -X POST http://localhost:4000/api/v1/llm/answers \
   -H "Content-Type: application/json" \
   -d '{
@@ -335,7 +503,8 @@ curl -X POST http://localhost:4000/api/v1/llm/answers \
 
 **Example - Continue Conversation:**
 ```bash
-curl -X POST http://localhost:4000/api/v1/llm/answers \
+# Through Nginx (production/Docker - requires Basic Auth)
+curl -u username:password -X POST http://localhost/api/v1/llm/answers \
   -H "Content-Type: application/json" \
   -d '{
     "conversationId": "550e8400-e29b-41d4-a716-446655440000",
@@ -346,6 +515,15 @@ curl -X POST http://localhost:4000/api/v1/llm/answers \
 
 **Example - Streaming:**
 ```bash
+# Through Nginx (production/Docker - requires Basic Auth)
+curl -u username:password -X POST http://localhost/api/v1/llm/answers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Explain quantum computing",
+    "stream": true
+  }'
+
+# Direct access (development only)
 curl -X POST http://localhost:4000/api/v1/llm/answers \
   -H "Content-Type: application/json" \
   -d '{

@@ -50,7 +50,6 @@ logs
 .DS_Store
 Thumbs.db
 
-# Misc
-coverage
-.nyc_output
+# Nginx configs (not needed in API build context)
+nginx
 

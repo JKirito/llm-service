@@ -20,6 +20,8 @@
     "@llm-service/logger": "workspace:*",
     "@llm-service/types": "workspace:*",
     "@llm-service/azure-storage": "workspace:*",
+    "@llm-service/redis": "workspace:*",
+    "@llm-service/rate-limiter": "workspace:*",
     "ai": "^5.0.68",
     "mongodb": "^6.9.0"
   },

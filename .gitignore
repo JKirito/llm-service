@@ -65,6 +65,9 @@ dist/
 build/
 out/
 
+# Nginx Basic Auth password file (contains sensitive credentials)
+nginx/config/.htpasswd
+
 # Coverage reports
 coverage/
 *.lcov

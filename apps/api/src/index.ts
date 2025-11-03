@@ -2,14 +2,29 @@ import { createLogger } from "@llm-service/logger";
 import { handleRequest } from "./router";
 import { config } from "./config";
 import { getDatabase } from "./lib/mongodb";
+import { initializeRedis } from "@llm-service/redis";
 
 const logger = createLogger("API");
 
 async function startServer(): Promise<void> {
   try {
+    // Initialize Redis connection
+    initializeRedis({
+      host: config.redis.host,
+      port: config.redis.port,
+      password: config.redis.password,
+      db: config.redis.db,
+      lazyConnect: false,
+    });
+
+    logger.info(
+      `Redis initialized: ${config.redis.host}:${config.redis.port}`,
+    );
+
+    // Initialize MongoDB connection
     await getDatabase();
   } catch (error) {
-    logger.error("Failed to establish initial MongoDB connection", error);
+    logger.error("Failed to establish initial database connections", error);
     throw error;
   }
 

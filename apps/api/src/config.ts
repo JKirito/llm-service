@@ -6,6 +6,7 @@ const requiredEnvVars = [
   "AZURE_STORAGE_CONNECTION_STRING",
   "OPENAI_API_KEY",
   "MONGODB_URI",
+  "REDIS_HOST",
 ] as const;
 
 type RequiredEnvVar = (typeof requiredEnvVars)[number];
@@ -56,6 +57,32 @@ const imageContainerName =
     ? process.env.IMAGE_CONTAINER_NAME.trim()
     : "generated-images";
 
+const redisHost = ensureEnv("REDIS_HOST");
+const redisPort = Number.parseInt(
+  process.env.REDIS_PORT || "6379",
+  10,
+);
+if (Number.isNaN(redisPort)) {
+  const message =
+    "Invalid Redis port configuration. Ensure REDIS_PORT is a valid number.";
+  logger.error(message);
+  throw new Error(message);
+}
+const redisPassword =
+  process.env.REDIS_PASSWORD && process.env.REDIS_PASSWORD.trim() !== ""
+    ? process.env.REDIS_PASSWORD.trim()
+    : undefined;
+const redisDb = Number.parseInt(
+  process.env.REDIS_DB || "0",
+  10,
+);
+if (Number.isNaN(redisDb)) {
+  const message =
+    "Invalid Redis DB configuration. Ensure REDIS_DB is a valid number.";
+  logger.error(message);
+  throw new Error(message);
+}
+
 export const config = Object.freeze({
   nodeEnv,
   server: {
@@ -75,6 +102,12 @@ export const config = Object.freeze({
   },
   images: {
     containerName: imageContainerName,
+  },
+  redis: {
+    host: redisHost,
+    port: redisPort,
+    password: redisPassword,
+    db: redisDb,
   },
 });
 

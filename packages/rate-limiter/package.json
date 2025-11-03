@@ -1,0 +1,29 @@
+{
+  "name": "@llm-service/rate-limiter",
+  "version": "1.0.0",
+  "description": "Rate limiting utilities with sliding window algorithm",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:bun": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "dev": "tsc --watch",
+    "test": "bun test",
+    "lint": "bun run lint:eslint && bun run lint:prettier",
+    "lint:eslint": "eslint src --ext .ts,.tsx",
+    "lint:prettier": "prettier --check src",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@llm-service/redis": "workspace:*"
+  },
+  "devDependencies": {}
+}
+

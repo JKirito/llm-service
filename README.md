@@ -60,9 +60,16 @@ See [Docker Documentation](docs/DOCKER.md) for detailed setup instructions.
 cp .env.example .env
 
 # Edit .env with your credentials
-# Then start services
+
+# Generate Basic Auth credentials for Nginx
+chmod +x nginx/generate-htpasswd.sh
+./nginx/generate-htpasswd.sh admin password123
+
+# Start services (includes Nginx reverse proxy with Basic Auth)
 docker-compose up -d
 ```
+
+**Note:** When using Docker, the API is accessed through Nginx on port 80 (with Basic Auth). See [Docker Documentation](docs/DOCKER.md#basic-authentication-setup) for authentication setup.
 
 ## Documentation
 
@@ -80,6 +87,7 @@ docker-compose up -d
 - ✅ **Conversation Persistence** - MongoDB-based conversation storage
 - ✅ **File Management** - Azure Blob Storage integration
 - ✅ **Source Tracking** - Track sources from tools, documents, and more
+- ✅ **Nginx Reverse Proxy** - Production-ready reverse proxy with Basic Authentication
 
 ## Tech Stack
 
@@ -87,6 +95,7 @@ docker-compose up -d
 - **AI Framework**: Vercel AI SDK v5
 - **Database**: MongoDB 6.9.0
 - **Storage**: Azure Blob Storage
+- **Reverse Proxy**: Nginx with Basic Authentication
 - **Language**: TypeScript 5.5.0
 - **Logging**: Winston 3.11.0
 

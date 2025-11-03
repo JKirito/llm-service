@@ -23,15 +23,33 @@ services:
     networks:
       - llm-service_network
 
-  # API service
+  # Redis service
+  redis:
+    image: redis:7-alpine
+    container_name: llm-service-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - llm-service_redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - llm-service_network
+
+  # API service (not exposed directly, accessed via Nginx)
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: llm-service-api
     restart: unless-stopped
-    ports:
-      - "${API_PORT:-4000}:4000"
+    expose:
+      - "4000"
     environment:
       # Server config
       NODE_ENV: ${NODE_ENV:-production}
@@ -52,8 +70,16 @@ services:
       
       # Image generation config
       IMAGE_CONTAINER_NAME: ${IMAGE_CONTAINER_NAME:-generated-images}
+      
+      # Redis config
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
     depends_on:
       mongodb:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - llm-service_network
@@ -64,10 +90,35 @@ services:
       retries: 3
       start_period: 40s
 
+  # Nginx reverse proxy with Basic Authentication
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: llm-service-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./nginx/config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/config/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/config/.htpasswd:/etc/nginx/.htpasswd:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - llm-service_network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -f /var/run/nginx.pid"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 volumes:
   llm-service_mongodb_data:
     driver: local
   llm-service_mongodb_config:
+    driver: local
+  llm-service_redis_data:
     driver: local
 
 networks:
