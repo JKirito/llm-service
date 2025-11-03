@@ -393,7 +393,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
               "assistant",
               streamedText,
               {
-                model,
+              model,
               },
               undefined,
               undefined,
@@ -480,8 +480,8 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             "assistant",
             finalText,
             {
-              model,
-              ...(usageRecord ? { usage: usageRecord } : {}),
+            model,
+            ...(usageRecord ? { usage: usageRecord } : {}),
             },
             undefined,
             undefined,
@@ -582,8 +582,8 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       "assistant",
       result.text,
       {
-        model,
-        ...(usageMetadata ? { usage: usageMetadata } : {}),
+      model,
+      ...(usageMetadata ? { usage: usageMetadata } : {}),
       },
       undefined,
       undefined,
