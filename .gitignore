@@ -71,3 +71,6 @@ nginx/config/.htpasswd
 # Coverage reports
 coverage/
 *.lcov
+
+# ignore the infra directory
+infra/
