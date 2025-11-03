@@ -9,18 +9,44 @@ llm-service/
 ├── packages/              # Shared libraries
 │   ├── azure-storage/     # Azure Blob Storage client
 │   ├── logger/            # Logging utilities
+│   ├── rate-limiter/      # Rate limiting utilities
+│   ├── redis/             # Redis client
 │   ├── shared-utils/      # Common utilities
 │   └── types/             # TypeScript type definitions
 ├── apps/                  # Applications
 │   ├── api/               # API service
+│   │   ├── src/
+│   │   │   ├── lib/       # Library modules (MongoDB, storage, parsers)
+│   │   │   ├── middleware/ # Middleware (rate limiter)
+│   │   │   ├── routes/    # API routes
+│   │   │   │   └── v1/    # API v1 endpoints
+│   │   │   │       ├── files/     # File management endpoints
+│   │   │   │       └── llm/       # LLM endpoints (conversations, images, tools)
+│   │   │   ├── config.ts  # Configuration
+│   │   │   ├── index.ts   # Application entry point
+│   │   │   └── router.ts  # Router setup
+│   │   └── dist/          # Compiled output
 │   └── web-app/           # Web application
-├── tools/                 # Development tools
+│       ├── src/
+│       └── dist/          # Compiled output
+├── nginx/                 # Nginx configuration
+│   ├── config/            # Nginx config files
+│   └── generate-htpasswd.sh # Basic Auth setup script
 ├── docs/                  # Documentation
 │   ├── API.md            # API documentation
 │   ├── DOCKER.md         # Docker setup guide
 │   └── TECH_STACK.md     # Tech stack overview
-├── scripts/               # Build and utility scripts
-└── bunfig.toml            # Bun configuration
+├── scripts/               # Utility scripts
+│   ├── test-document-flow.ts    # Document flow tests
+│   ├── test-edge-cases.ts       # Edge case tests
+│   └── test-quick.ts            # Quick tests
+├── tools/                 # Development tools
+├── docker-compose.yml     # Production Docker setup
+├── docker-compose.dev.yml # Development Docker setup
+├── Dockerfile             # Production Dockerfile
+├── Dockerfile.dev         # Development Dockerfile
+├── bunfig.toml            # Bun configuration
+└── tsconfig.json          # TypeScript configuration
 ```
 
 ## Quick Start
