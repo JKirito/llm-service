@@ -97,6 +97,7 @@ services:
     restart: unless-stopped
     ports:
       - "${NGINX_PORT:-81}:80"
+      - "${NGINX_TLS_PORT:-943}:443"
     volumes:
       - type: bind
         source: ./nginx/config/nginx.conf
@@ -109,6 +110,10 @@ services:
       - type: bind
         source: ./nginx/config/.htpasswd
         target: /etc/nginx/.htpasswd
+        read_only: true
+      - type: bind
+        source: ./nginx/certs
+        target: /etc/nginx/certs
         read_only: true
     depends_on:
       api:
