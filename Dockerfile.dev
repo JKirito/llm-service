@@ -4,16 +4,14 @@ FROM oven/bun:1.3.1
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files and source code for workspace resolution
 COPY package.json bun.lockb* ./
-COPY packages/*/package.json ./packages/*/
-COPY apps/*/package.json ./apps/*/
+COPY tsconfig.json ./
+COPY packages ./packages
+COPY apps ./apps
 
 # Install all dependencies (including dev dependencies)
 RUN bun install
-
-# Copy source code (will be mounted as volume in dev)
-COPY . .
 
 # Build packages
 RUN bun run build:packages

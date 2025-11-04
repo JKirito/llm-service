@@ -53,3 +53,6 @@ Thumbs.db
 # Nginx configs (not needed in API build context)
 nginx
 
+# Infrastructure data (runtime volumes, not needed in build context)
+infra
+
