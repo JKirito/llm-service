@@ -60,6 +60,49 @@ function ensureAzureStorage(): void {
   }
 }
 
+/**
+ * Upload a file to OpenAI Files API
+ * Returns the file ID that can be used with code_interpreter
+ */
+async function uploadFileToOpenAI(
+  fileBuffer: Buffer,
+  fileName: string,
+): Promise<string> {
+  try {
+    const formData = new FormData();
+    // Convert Buffer to Uint8Array for Blob compatibility
+    const uint8Array = new Uint8Array(fileBuffer);
+    const blob = new Blob([uint8Array], { type: "application/octet-stream" });
+    const file = new File([blob], fileName);
+    formData.append("file", file);
+    formData.append("purpose", "assistants");
+
+    const response = await fetch("https://api.openai.com/v1/files", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.openai.apiKey}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(
+        `OpenAI file upload failed: ${response.status} - ${
+          error.error?.message || response.statusText
+        }`,
+      );
+    }
+
+    const result = (await response.json()) as { id: string };
+    logger.info(`Uploaded file to OpenAI: ${fileName} -> ${result.id}`);
+    return result.id;
+  } catch (error) {
+    logger.error(`Failed to upload file to OpenAI: ${fileName}`, error);
+    throw error;
+  }
+}
+
 export const generateAnswerHandler: RouteHandler = async (req) => {
   let body: Record<string, unknown>;
 
@@ -142,14 +185,10 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     }
   }
 
-  // Determine if Responses API is needed and get OpenAI tools
+  // Determine if Responses API is needed (will be updated after we get file IDs)
   const needsResponsesAPI =
     requestedTools.length > 0 &&
     toolRegistry.requiresResponsesAPI(requestedTools);
-  const openAITools =
-    requestedTools.length > 0
-      ? toolRegistry.getOpenAITools(requestedTools)
-      : undefined;
 
   // Parse document references if provided
   let documentReferences: string[] = [];
@@ -162,28 +201,38 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   // Process documents if provided
   let documentContexts: DocumentContext[] = [];
   let fileReferences: MessageFileReference[] = [];
+  let openAIFileIds: string[] = [];
+  const needsCodeInterpreter = requestedTools.includes("code_interpreter");
 
   if (documentReferences.length > 0) {
     ensureAzureStorage();
 
     try {
-      for (const docRef of documentReferences) {
+      // Process documents in parallel (Azure download + OpenAI upload)
+      const documentPromises = documentReferences.map(async (docRef) => {
         try {
           const { containerName, filePath } = parseDocumentPath(docRef);
 
           // Download file from Azure Storage
           const downloadResult = await downloadFile(containerName, filePath);
 
-          // Parse document content
-          const parsedContent = await parseDocument(
-            downloadResult.content,
-            downloadResult.contentType || "application/octet-stream",
-            downloadResult.fileName,
-          );
-
           // Extract filename from metadata or use fileName
           const filename =
             downloadResult.metadata?.originalName || downloadResult.fileName;
+
+          // Run Azure processing and OpenAI upload in parallel
+          const [parsedContent, openAIFileId] = await Promise.all([
+            // Parse document content for system prompt
+            parseDocument(
+              downloadResult.content,
+              downloadResult.contentType || "application/octet-stream",
+              downloadResult.fileName,
+            ),
+            // Upload to OpenAI Files API if code_interpreter is requested
+            needsCodeInterpreter
+              ? uploadFileToOpenAI(downloadResult.content, filename)
+              : Promise.resolve(undefined),
+          ]);
 
           // Generate file URL dynamically using path format
           const fullPath = `${containerName}/${filePath}`;
@@ -198,28 +247,34 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             filePath,
           };
 
-          documentContexts.push(docContext);
-
           // Build file reference for message metadata
           const fileRef: MessageFileReference = {
             path: `${containerName}/${filePath}`,
             filename,
           };
 
-          fileReferences.push(fileRef);
+          return {
+            docContext,
+            fileRef,
+            openAIFileId,
+          };
         } catch (error) {
           logger.error(
             `Failed to process document reference: ${docRef}`,
             error,
           );
-          const response: ApiResponse = {
-            success: false,
-            error:
-              error instanceof Error
-                ? `Failed to process document "${docRef}": ${error.message}`
-                : `Failed to process document "${docRef}"`,
-          };
-          return Response.json(response, { status: 400 });
+          throw error;
+        }
+      });
+
+      const results = await Promise.all(documentPromises);
+
+      // Collect results
+      for (const result of results) {
+        documentContexts.push(result.docContext);
+        fileReferences.push(result.fileRef);
+        if (result.openAIFileId) {
+          openAIFileIds.push(result.openAIFileId);
         }
       }
     } catch (error) {
@@ -234,6 +289,16 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       return Response.json(response, { status: 500 });
     }
   }
+
+  // Get OpenAI tools with file IDs (for code_interpreter)
+  const openAITools =
+    requestedTools.length > 0
+      ? toolRegistry.getOpenAITools(
+          requestedTools,
+          openAIFileIds.length > 0 ? openAIFileIds : undefined,
+        )
+      : undefined;
+
 
   const buildResult = buildMessagesFromBody(body);
   if (!buildResult.success) {
@@ -410,20 +475,24 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       async execute({ writer }) {
         try {
           const result = streamText({
-          model: modelInstance,
-          messages: modelMessages,
-          ...(openAITools ? { tools: openAITools } : {}),
-          temperature:
-            typeof temperature === "number" && !Number.isNaN(temperature)
-              ? temperature
-              : undefined,
-          providerOptions: {
-            openai: {
-              reasoningEffort,
-              textVerbosity,
-            },
-          },
-          abortSignal: req.signal,
+            model: modelInstance,
+            messages: modelMessages,
+            ...(openAITools ? { tools: openAITools } : {}),
+            temperature:
+              typeof temperature === "number" && !Number.isNaN(temperature)
+                ? temperature
+                : undefined,
+            ...(needsResponsesAPI
+              ? {
+                  providerOptions: {
+                    openai: {
+                      reasoningEffort,
+                      textVerbosity,
+                    },
+                  },
+                }
+              : {}),
+            abortSignal: req.signal,
           onChunk: ({ chunk }) => {
             if (chunk.type === "text-delta" && typeof chunk.text === "string") {
               streamedText += chunk.text;
@@ -585,12 +654,16 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
         typeof temperature === "number" && !Number.isNaN(temperature)
           ? temperature
           : undefined,
-      providerOptions: {
-        openai: {
-          reasoningEffort,
-          textVerbosity,
-        },
-      },
+      ...(needsResponsesAPI
+        ? {
+            providerOptions: {
+              openai: {
+                reasoningEffort,
+                textVerbosity,
+              },
+            },
+          }
+        : {}),
     });
 
     const usageMetadata =

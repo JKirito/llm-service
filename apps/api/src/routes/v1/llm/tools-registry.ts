@@ -7,7 +7,7 @@ export interface ToolDefinition {
   openaiToolName: string;
   description: string;
   requiresResponsesAPI: boolean;
-  getTool: () => Tool;
+  getTool: (fileIds?: string[]) => Tool;
 }
 
 export class ToolRegistry {
@@ -31,12 +31,12 @@ export class ToolRegistry {
       .filter((tool): tool is ToolDefinition => tool !== undefined);
   }
 
-  getOpenAITools(names: string[]): Record<string, Tool> {
+  getOpenAITools(names: string[], fileIds?: string[]): Record<string, Tool> {
     const tools: Record<string, Tool> = {};
     const requestedTools = this.getToolsByName(names);
 
     for (const toolDef of requestedTools) {
-      const toolInstance = toolDef.getTool();
+      const toolInstance = toolDef.getTool(fileIds);
       // For OpenAI's Responses API tools (like webSearchPreview), the tool name
       // must match what OpenAI expects. The tool instance from webSearchPreview
       // has the name "web_search_preview" internally, so we use that as the key.
@@ -88,5 +88,30 @@ toolRegistry.registerTool({
   description:
     "Search the web for current information using OpenAI's web search",
   requiresResponsesAPI: true,
-  getTool: () => getOpenAIInstance().tools.webSearch({}) as Tool,
+  getTool: () => getOpenAIInstance().tools.webSearch({}) as Tool, // fileIds not needed for web_search
+});
+
+// Register code_interpreter tool
+// User-facing name: "code_interpreter"
+// Actual OpenAI tool name: "code_interpreter"
+// Note: File IDs must be passed separately when constructing the tool
+// code_interpreter requires Responses API for proper functionality
+toolRegistry.registerTool({
+  name: "code_interpreter", // User-facing name for API requests (tools: ["code_interpreter"])
+  openaiToolName: "code_interpreter", // Actual OpenAI tool name that the model sees
+  description:
+    "Write and execute Python code to analyze data, create visualizations, and solve problems",
+  requiresResponsesAPI: true, // code_interpreter requires Responses API
+  getTool: (fileIds?: string[]) => {
+    // If file IDs are provided, make them available to code_interpreter
+    if (fileIds && fileIds.length > 0) {
+      return getOpenAIInstance().tools.codeInterpreter({
+        container: {
+          fileIds: fileIds,
+        },
+      }) as Tool;
+    }
+    // Return code_interpreter without file container
+    return getOpenAIInstance().tools.codeInterpreter({}) as Tool;
+  },
 });
