@@ -63,5 +63,3 @@ export async function uploadGeneratedImage(
     throw error;
   }
 }
-
-

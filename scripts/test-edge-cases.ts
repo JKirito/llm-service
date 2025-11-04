@@ -43,7 +43,10 @@ async function testInvalidDocumentReference() {
     log("Expected error but got success", "error");
     return false;
   } catch (error) {
-    log(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`, "error");
+    log(
+      `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      "error",
+    );
     return false;
   }
 }
@@ -68,7 +71,10 @@ async function testMissingFile() {
     log("Expected error but got success", "error");
     return false;
   } catch (error) {
-    log(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`, "error");
+    log(
+      `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      "error",
+    );
     return false;
   }
 }
@@ -93,7 +99,10 @@ async function testEmptyDocumentReferences() {
     log(`Got error: ${result.error}`, "error");
     return false;
   } catch (error) {
-    log(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`, "error");
+    log(
+      `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      "error",
+    );
     return false;
   }
 }
@@ -117,7 +126,10 @@ async function testMissingPrompt() {
     log("Expected error but got success", "error");
     return false;
   } catch (error) {
-    log(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`, "error");
+    log(
+      `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      "error",
+    );
     return false;
   }
 }
@@ -165,11 +177,16 @@ async function runEdgeCaseTests() {
     }
   });
 
-  log(`\nTests passed: ${passed}/${total}`, passed === total ? "success" : "error");
+  log(
+    `\nTests passed: ${passed}/${total}`,
+    passed === total ? "success" : "error",
+  );
 }
 
 runEdgeCaseTests().catch((error) => {
-  log(`Test suite failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+  log(
+    `Test suite failed: ${error instanceof Error ? error.message : String(error)}`,
+    "error",
+  );
   process.exit(1);
 });
-

@@ -2,6 +2,11 @@ import type { Route } from "../../types";
 import { generateAnswerHandler } from "./handler";
 import { generateImageHandler } from "./images";
 import { listToolsHandler } from "./tools";
+import {
+  getConversationHandler,
+  listConversationsHandler,
+  deleteConversationHandler,
+} from "./conversations";
 
 export const llmRoutes: Route[] = [
   {
@@ -18,5 +23,20 @@ export const llmRoutes: Route[] = [
     path: "/v1/llm/tools",
     handler: listToolsHandler,
     methods: ["GET"],
+  },
+  {
+    path: "/v1/llm/conversations",
+    handler: listConversationsHandler,
+    methods: ["GET"],
+  },
+  {
+    path: "/v1/llm/conversations/:conversationId",
+    handler: getConversationHandler,
+    methods: ["GET"],
+  },
+  {
+    path: "/v1/llm/conversations/:conversationId",
+    handler: deleteConversationHandler,
+    methods: ["DELETE"],
   },
 ];

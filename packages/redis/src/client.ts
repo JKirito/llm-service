@@ -30,11 +30,15 @@ export function initializeRedis(config: RedisConfig): Redis {
     port: config.port,
     password: config.password,
     db: config.db ?? 0,
-    retryStrategy: config.retryStrategy ?? ((times: number) => {
-      const delay = Math.min(times * 50, 2000);
-      logger.warn(`Redis connection retry attempt ${times}, waiting ${delay}ms`);
-      return delay;
-    }),
+    retryStrategy:
+      config.retryStrategy ??
+      ((times: number) => {
+        const delay = Math.min(times * 50, 2000);
+        logger.warn(
+          `Redis connection retry attempt ${times}, waiting ${delay}ms`,
+        );
+        return delay;
+      }),
     maxRetriesPerRequest: config.maxRetriesPerRequest ?? 3,
     enableReadyCheck: config.enableReadyCheck ?? true,
     lazyConnect: config.lazyConnect ?? false,
@@ -95,4 +99,3 @@ export async function closeRedis(): Promise<void> {
 export function isRedisConnected(): boolean {
   return redisClient?.status === "ready";
 }
-

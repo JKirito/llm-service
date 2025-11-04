@@ -14,7 +14,7 @@ function ensureAzureStorage(): void {
 /**
  * Generates a full URL from a relative path (containerName/filePath)
  * This allows switching storage providers without database migration
- * 
+ *
  * @param relativePath - Path in format "containerName/filePath" or "containerName/path/to/file"
  * @returns Full URL to the file
  */
@@ -27,7 +27,7 @@ export function getFileUrlFromPath(relativePath: string): string {
 
 /**
  * Generates a signed URL (SAS token) from a relative path
- * 
+ *
  * @param relativePath - Path in format "containerName/filePath" or "containerName/path/to/file"
  * @param expiresInMinutes - Expiration time in minutes (default: 60)
  * @returns Signed URL with SAS token
@@ -41,4 +41,3 @@ export function getSignedUrlFromPath(
   const filePath = pathParts.join("/");
   return generateSignedUrl(containerName, filePath, expiresInMinutes);
 }
-

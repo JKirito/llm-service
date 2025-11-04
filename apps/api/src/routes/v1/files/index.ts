@@ -223,8 +223,7 @@ export const generateSignedUrlHandler: RouteHandler = async (req) => {
     if (pathParts.length < 2) {
       const response: ApiResponse = {
         success: false,
-        error:
-          'Invalid path format. Expected format: "containerName/filePath"',
+        error: 'Invalid path format. Expected format: "containerName/filePath"',
       };
       return Response.json(response, { status: 400 });
     }

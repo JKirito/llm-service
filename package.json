@@ -23,6 +23,8 @@
     "test:quick": "bun scripts/test-quick.ts",
     "test:edge": "bun scripts/test-edge-cases.ts",
     "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write \"apps/**/*.ts\" \"packages/**/*.ts\" \"scripts/**/*.ts\"",
+    "format:check": "prettier --check \"apps/**/*.ts\" \"packages/**/*.ts\" \"scripts/**/*.ts\"",
     "clean": "bun run clean --filter=\"*\" && rm -rf node_modules",
     "typecheck": "bun run typecheck --filter=\"*\"",
     "bootstrap": "bun install"

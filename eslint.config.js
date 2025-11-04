@@ -8,6 +8,7 @@ export default [
     ignores: [
       '**/dist/**',
       '**/node_modules/**',
+      '**/infra/**',
       '**/*.js',
       '**/*.mjs',
       '**/*.cjs',

@@ -1,4 +1,9 @@
-import { BlobServiceClient, StorageSharedKeyCredential, generateBlobSASQueryParameters, BlobSASPermissions } from "@azure/storage-blob";
+import {
+  BlobServiceClient,
+  StorageSharedKeyCredential,
+  generateBlobSASQueryParameters,
+  BlobSASPermissions,
+} from "@azure/storage-blob";
 import { createLogger } from "@llm-service/logger";
 import type {
   FileUploadOptions,
@@ -190,10 +195,7 @@ export class AzureBlobStorage {
 
       return signedUrl;
     } catch (error) {
-      logger.error(
-        `Failed to generate signed URL for ${fileName}`,
-        error,
-      );
+      logger.error(`Failed to generate signed URL for ${fileName}`, error);
       throw error;
     }
   }

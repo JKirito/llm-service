@@ -2,10 +2,10 @@
 
 /**
  * Test script for document upload and LLM generate flow
- * 
+ *
  * Usage:
  *   bun scripts/test-document-flow.ts
- * 
+ *
  * Environment variables (optional):
  *   API_BASE_URL - Base URL for API (default: http://localhost:4000)
  *   CONTAINER_NAME - Container name for uploads (default: test-documents)
@@ -110,7 +110,9 @@ async function testUploadFile(
 
     return result.data.documentReference;
   } catch (error) {
-    logError(`Upload failed: ${error instanceof Error ? error.message : String(error)}`);
+    logError(
+      `Upload failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return null;
   }
 }
@@ -183,7 +185,9 @@ async function testGenerateWithDocument(
       return result.data;
     }
   } catch (error) {
-    logError(`Generate failed: ${error instanceof Error ? error.message : String(error)}`);
+    logError(
+      `Generate failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return null;
   }
 }
@@ -225,7 +229,9 @@ async function testContinueConversation(
 
     return result.data;
   } catch (error) {
-    logError(`Continue failed: ${error instanceof Error ? error.message : String(error)}`);
+    logError(
+      `Continue failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return null;
   }
 }
@@ -382,13 +388,17 @@ This document provides technical implementation details.`;
   });
 
   log("\n" + "-".repeat(60));
-  log(`Tests passed: ${passed}/${total}`, passed === total ? "green" : "yellow");
+  log(
+    `Tests passed: ${passed}/${total}`,
+    passed === total ? "green" : "yellow",
+  );
   log("=".repeat(60), "cyan");
 }
 
 // Run tests
 runTests().catch((error) => {
-  logError(`Test suite failed: ${error instanceof Error ? error.message : String(error)}`);
+  logError(
+    `Test suite failed: ${error instanceof Error ? error.message : String(error)}`,
+  );
   process.exit(1);
 });
-

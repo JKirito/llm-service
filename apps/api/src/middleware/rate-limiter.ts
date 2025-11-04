@@ -108,7 +108,11 @@ function normalizeEndpointPath(pathname: string): string {
 
   // For DELETE /v1/files/:containerName/:fileName
   // normalize to /v1/files
-  if (normalized.startsWith("/v1/files/") && normalized !== "/v1/files/upload" && normalized !== "/v1/files/signed-url") {
+  if (
+    normalized.startsWith("/v1/files/") &&
+    normalized !== "/v1/files/upload" &&
+    normalized !== "/v1/files/signed-url"
+  ) {
     return "/v1/files";
   }
 
@@ -166,8 +170,10 @@ export async function rateLimiterMiddleware(
 
   // Extract IP address
   const ip = extractIPAddress(req);
-  logger.debug(`Rate limit check for ${pathname}: IP=${ip}, Config found: limit=${config.limit}`);
-  
+  logger.debug(
+    `Rate limit check for ${pathname}: IP=${ip}, Config found: limit=${config.limit}`,
+  );
+
   // Note: We allow rate limiting even with "unknown-client" IP
   // This ensures rate limiting works even when IP headers aren't available
   // All requests with unknown IPs will share the same limit pool
@@ -227,7 +233,9 @@ export async function rateLimiterMiddleware(
 
     // Rate limit passed, request can proceed
     // Return headers to be added to the response
-    logger.debug(`Rate limit passed for ${endpoint}, returning headers: ${JSON.stringify(headers)}`);
+    logger.debug(
+      `Rate limit passed for ${endpoint}, returning headers: ${JSON.stringify(headers)}`,
+    );
     return {
       rateLimited: false,
       headers,
@@ -287,4 +295,3 @@ export async function getRateLimitHeaders(
     return {};
   }
 }
-

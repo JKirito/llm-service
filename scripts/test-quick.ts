@@ -55,7 +55,9 @@ async function quickTest() {
 
     if (!generateResponse.ok) {
       const error = await generateResponse.json();
-      throw new Error(error.error || `Generate failed: ${generateResponse.status}`);
+      throw new Error(
+        error.error || `Generate failed: ${generateResponse.status}`,
+      );
     }
 
     const generateResult = await generateResponse.json();
@@ -65,7 +67,9 @@ async function quickTest() {
 
     console.log(`✅ Generated response:`);
     console.log(`   Conversation ID: ${generateResult.data.conversationId}`);
-    console.log(`   Response: ${generateResult.data.text.substring(0, 200)}...\n`);
+    console.log(
+      `   Response: ${generateResult.data.text.substring(0, 200)}...\n`,
+    );
 
     console.log("✨ Test completed successfully!");
 
@@ -74,10 +78,12 @@ async function quickTest() {
       conversationId: generateResult.data.conversationId,
     };
   } catch (error) {
-    console.error("❌ Test failed:", error instanceof Error ? error.message : String(error));
+    console.error(
+      "❌ Test failed:",
+      error instanceof Error ? error.message : String(error),
+    );
     process.exit(1);
   }
 }
 
 quickTest();
-

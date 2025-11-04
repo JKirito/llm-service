@@ -58,10 +58,7 @@ const imageContainerName =
     : "generated-images";
 
 const redisHost = ensureEnv("REDIS_HOST");
-const redisPort = Number.parseInt(
-  process.env.REDIS_PORT || "6379",
-  10,
-);
+const redisPort = Number.parseInt(process.env.REDIS_PORT || "6379", 10);
 if (Number.isNaN(redisPort)) {
   const message =
     "Invalid Redis port configuration. Ensure REDIS_PORT is a valid number.";
@@ -72,10 +69,7 @@ const redisPassword =
   process.env.REDIS_PASSWORD && process.env.REDIS_PASSWORD.trim() !== ""
     ? process.env.REDIS_PASSWORD.trim()
     : undefined;
-const redisDb = Number.parseInt(
-  process.env.REDIS_DB || "0",
-  10,
-);
+const redisDb = Number.parseInt(process.env.REDIS_DB || "0", 10);
 if (Number.isNaN(redisDb)) {
   const message =
     "Invalid Redis DB configuration. Ensure REDIS_DB is a valid number.";

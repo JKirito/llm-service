@@ -1,5 +1,9 @@
 import type { ApiResponse } from "@llm-service/types";
-import type { MessageFileReference, ImageReference, MessageSource } from "./types";
+import type {
+  MessageFileReference,
+  ImageReference,
+  MessageSource,
+} from "./types";
 
 const SUPPORTED_ROLES = ["system", "user", "assistant"] as const;
 
@@ -96,22 +100,20 @@ export function createTextMessage(
 ): BasicUIMessage {
   const finalMetadata: MessageMetadata = {
     ...metadata,
-    ...(fileReferences && fileReferences.length > 0
-      ? { fileReferences }
-      : {}),
+    ...(fileReferences && fileReferences.length > 0 ? { fileReferences } : {}),
     ...(imageReferences && imageReferences.length > 0
       ? { imageReferences }
       : {}),
-    ...(sources && sources.length > 0
-      ? { sources }
-      : {}),
+    ...(sources && sources.length > 0 ? { sources } : {}),
   };
 
   return {
     id: generateMessageId(),
     role,
     parts: [{ type: "text", text }],
-    ...(Object.keys(finalMetadata).length > 0 ? { metadata: finalMetadata } : {}),
+    ...(Object.keys(finalMetadata).length > 0
+      ? { metadata: finalMetadata }
+      : {}),
   };
 }
 

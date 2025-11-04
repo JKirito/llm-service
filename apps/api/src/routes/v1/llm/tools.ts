@@ -42,4 +42,3 @@ export const listToolsHandler: RouteHandler = async (_req) => {
     return Response.json(response, { status: 500 });
   }
 };
-

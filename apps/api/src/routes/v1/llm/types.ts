@@ -83,4 +83,3 @@ export function parseDocumentPath(path: string): ParsedDocumentPath {
     filePath,
   };
 }
-

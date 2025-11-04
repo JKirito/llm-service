@@ -61,4 +61,3 @@ You have access to: ${tools.join(", ")}
 Use these tools when needed to help the user.`;
   }
 }
-

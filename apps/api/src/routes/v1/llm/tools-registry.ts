@@ -1,5 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { Tool } from "ai";
+import { config } from "../../../config";
 
 export interface ToolDefinition {
   name: string;
@@ -70,8 +71,6 @@ let openaiInstance: ReturnType<typeof createOpenAI> | null = null;
 
 function getOpenAIInstance(): ReturnType<typeof createOpenAI> {
   if (!openaiInstance) {
-    // Import config dynamically to avoid circular dependencies
-    const { config } = require("../../../config");
     openaiInstance = createOpenAI({
       apiKey: config.openai.apiKey,
     });
@@ -81,13 +80,13 @@ function getOpenAIInstance(): ReturnType<typeof createOpenAI> {
 
 // Register web_search tool
 // User-facing name: "web_search" (for better developer experience)
-// Actual OpenAI tool name: "web_search_preview" (what the model sees and calls)
-// The mapping happens internally: user requests "web_search", we map to "web_search_preview"
+// Actual OpenAI tool name: "web_search" (what the model sees and calls)
+// Using the current webSearch tool (not deprecated webSearchPreview)
 toolRegistry.registerTool({
   name: "web_search", // User-facing name for API requests (tools: ["web_search"])
-  openaiToolName: "web_search_preview", // Actual OpenAI tool name that the model sees
-  description: "Search the web for current information using OpenAI's web search",
+  openaiToolName: "web_search", // Actual OpenAI tool name that the model sees
+  description:
+    "Search the web for current information using OpenAI's web search",
   requiresResponsesAPI: true,
-  getTool: () => getOpenAIInstance().tools.webSearchPreview({}),
+  getTool: () => getOpenAIInstance().tools.webSearch({}) as Tool,
 });
-

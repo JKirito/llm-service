@@ -17,9 +17,7 @@ async function startServer(): Promise<void> {
       lazyConnect: false,
     });
 
-    logger.info(
-      `Redis initialized: ${config.redis.host}:${config.redis.port}`,
-    );
+    logger.info(`Redis initialized: ${config.redis.host}:${config.redis.port}`);
 
     // Initialize MongoDB connection
     await getDatabase();
@@ -32,6 +30,7 @@ async function startServer(): Promise<void> {
     port: config.server.port,
     hostname: config.server.host,
     fetch: handleRequest,
+    idleTimeout: 250, // Maximum allowed timeout (255 seconds = ~4.25 minutes)
   });
 
   logger.info(

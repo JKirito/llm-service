@@ -11,7 +11,9 @@ export async function parseDocument(
   contentType: string,
   fileName: string,
 ): Promise<string> {
-  logger.info(`Parsing document: ${fileName} (${contentType}, ${content.length} bytes)`);
+  logger.info(
+    `Parsing document: ${fileName} (${contentType}, ${content.length} bytes)`,
+  );
 
   // Mock implementation - simulate parsing delay
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -29,4 +31,3 @@ File size: ${content.length} bytes
   logger.info(`Successfully parsed document: ${fileName}`);
   return mockContent;
 }
-

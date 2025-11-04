@@ -45,7 +45,9 @@ const VALID_STYLES = ["vivid", "natural"] as const;
 
 function validateImageGenerationRequest(
   body: Record<string, unknown>,
-): { valid: true; options: ImageGenerationOptions } | { valid: false; error: string } {
+):
+  | { valid: true; options: ImageGenerationOptions }
+  | { valid: false; error: string } {
   // Validate prompt
   const prompt = body.prompt;
   if (typeof prompt !== "string" || prompt.trim() === "") {
@@ -68,7 +70,10 @@ function validateImageGenerationRequest(
 
   // Validate size
   if (body.size !== undefined) {
-    if (typeof body.size !== "string" || !VALID_SIZES.includes(body.size as typeof VALID_SIZES[number])) {
+    if (
+      typeof body.size !== "string" ||
+      !VALID_SIZES.includes(body.size as (typeof VALID_SIZES)[number])
+    ) {
       return {
         valid: false,
         error: `Size must be one of: ${VALID_SIZES.join(", ")}`,
@@ -83,7 +88,9 @@ function validateImageGenerationRequest(
   if (body.quality !== undefined) {
     if (
       typeof body.quality !== "string" ||
-      !VALID_QUALITIES.includes(body.quality as typeof VALID_QUALITIES[number])
+      !VALID_QUALITIES.includes(
+        body.quality as (typeof VALID_QUALITIES)[number],
+      )
     ) {
       return {
         valid: false,
@@ -99,7 +106,7 @@ function validateImageGenerationRequest(
   if (body.style !== undefined) {
     if (
       typeof body.style !== "string" ||
-      !VALID_STYLES.includes(body.style as typeof VALID_STYLES[number])
+      !VALID_STYLES.includes(body.style as (typeof VALID_STYLES)[number])
     ) {
       return {
         valid: false,
@@ -113,11 +120,13 @@ function validateImageGenerationRequest(
 
   // Validate n (must be 1 for DALL-E 3)
   if (body.n !== undefined) {
-    const n = typeof body.n === "number" ? body.n : Number.parseInt(String(body.n), 10);
+    const n =
+      typeof body.n === "number" ? body.n : Number.parseInt(String(body.n), 10);
     if (Number.isNaN(n) || n !== 1) {
       return {
         valid: false,
-        error: "DALL-E 3 only supports generating 1 image per request (n must be 1)",
+        error:
+          "DALL-E 3 only supports generating 1 image per request (n must be 1)",
       };
     }
     options.n = 1;
@@ -127,7 +136,10 @@ function validateImageGenerationRequest(
 
   // Validate seed (optional)
   if (body.seed !== undefined) {
-    const seed = typeof body.seed === "number" ? body.seed : Number.parseInt(String(body.seed), 10);
+    const seed =
+      typeof body.seed === "number"
+        ? body.seed
+        : Number.parseInt(String(body.seed), 10);
     if (Number.isNaN(seed)) {
       return {
         valid: false,
@@ -175,7 +187,9 @@ export const generateImageHandler: RouteHandler = async (req) => {
 
   if (conversationIdFromBody) {
     try {
-      const existingConversation = await findConversation(conversationIdFromBody);
+      const existingConversation = await findConversation(
+        conversationIdFromBody,
+      );
       if (!existingConversation) {
         const response: ApiResponse = {
           success: false,
@@ -203,7 +217,10 @@ export const generateImageHandler: RouteHandler = async (req) => {
     const generateResult = await generateImage({
       model: openai.image("dall-e-3"),
       prompt: options.prompt,
-      size: (options.size || "1024x1024") as "1024x1024" | "1792x1024" | "1024x1792",
+      size: (options.size || "1024x1024") as
+        | "1024x1024"
+        | "1792x1024"
+        | "1024x1792",
       providerOptions: {
         openai: {
           quality: (options.quality || "standard") as "standard" | "hd",
@@ -237,17 +254,23 @@ export const generateImageHandler: RouteHandler = async (req) => {
 
         // Create image reference
         const imageId =
-          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          typeof crypto !== "undefined" &&
+          typeof crypto.randomUUID === "function"
             ? crypto.randomUUID()
             : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
         // Extract revised prompt from provider metadata if available
         let revisedPrompt: string | undefined;
         if (generateResult.providerMetadata?.openai) {
-          const openaiMetadata = generateResult.providerMetadata.openai as Record<string, unknown>;
+          const openaiMetadata = generateResult.providerMetadata
+            .openai as Record<string, unknown>;
           if (openaiMetadata.images && Array.isArray(openaiMetadata.images)) {
-            const firstImageMeta = openaiMetadata.images[0] as Record<string, unknown> | undefined;
-            revisedPrompt = firstImageMeta?.revised_prompt as string | undefined;
+            const firstImageMeta = openaiMetadata.images[0] as
+              | Record<string, unknown>
+              | undefined;
+            revisedPrompt = firstImageMeta?.revised_prompt as
+              | string
+              | undefined;
           }
           // Fallback: check direct revised_prompt property
           if (!revisedPrompt) {
@@ -359,4 +382,3 @@ export const generateImageHandler: RouteHandler = async (req) => {
     return Response.json(response, { status: 500 });
   }
 };
-

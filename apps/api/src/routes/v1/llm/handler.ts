@@ -28,7 +28,11 @@ import { initializeAzureStorage } from "@llm-service/azure-storage";
 import { getFileUrlFromPath } from "../../../lib/storage-url";
 import { parseDocument } from "../../../lib/document-parser";
 import { SystemPromptBuilder } from "./system-prompt-builder";
-import type { DocumentContext, MessageFileReference, MessageSource } from "./types";
+import type {
+  DocumentContext,
+  MessageFileReference,
+  MessageSource,
+} from "./types";
 import { parseDocumentPath } from "./types";
 import { toolRegistry } from "./tools-registry";
 
@@ -75,6 +79,46 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       : config.openai.defaultModel;
 
   const temperature = body.temperature;
+
+  // Parse reasoningEffort and textVerbosity options
+  const VALID_REASONING_EFFORT = ["low", "medium", "high"] as const;
+  const VALID_TEXT_VERBOSITY = ["low", "medium", "high"] as const;
+
+  let reasoningEffort: "low" | "medium" | "high" = "low";
+  if (body.reasoningEffort !== undefined) {
+    if (
+      typeof body.reasoningEffort === "string" &&
+      VALID_REASONING_EFFORT.includes(
+        body.reasoningEffort as (typeof VALID_REASONING_EFFORT)[number],
+      )
+    ) {
+      reasoningEffort = body.reasoningEffort as "low" | "medium" | "high";
+    } else {
+      const response: ApiResponse = {
+        success: false,
+        error: `reasoningEffort must be one of: ${VALID_REASONING_EFFORT.join(", ")}`,
+      };
+      return Response.json(response, { status: 400 });
+    }
+  }
+
+  let textVerbosity: "low" | "medium" | "high" = "low";
+  if (body.textVerbosity !== undefined) {
+    if (
+      typeof body.textVerbosity === "string" &&
+      VALID_TEXT_VERBOSITY.includes(
+        body.textVerbosity as (typeof VALID_TEXT_VERBOSITY)[number],
+      )
+    ) {
+      textVerbosity = body.textVerbosity as "low" | "medium" | "high";
+    } else {
+      const response: ApiResponse = {
+        success: false,
+        error: `textVerbosity must be one of: ${VALID_TEXT_VERBOSITY.join(", ")}`,
+      };
+      return Response.json(response, { status: 400 });
+    }
+  }
 
   // Parse tools if provided
   let requestedTools: string[] = [];
@@ -164,7 +208,10 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
 
           fileReferences.push(fileRef);
         } catch (error) {
-          logger.error(`Failed to process document reference: ${docRef}`, error);
+          logger.error(
+            `Failed to process document reference: ${docRef}`,
+            error,
+          );
           const response: ApiResponse = {
             success: false,
             error:
@@ -361,7 +408,8 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
 
     const stream = createUIMessageStream({
       async execute({ writer }) {
-        const result = streamText({
+        try {
+          const result = streamText({
           model: modelInstance,
           messages: modelMessages,
           ...(openAITools ? { tools: openAITools } : {}),
@@ -369,6 +417,12 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             typeof temperature === "number" && !Number.isNaN(temperature)
               ? temperature
               : undefined,
+          providerOptions: {
+            openai: {
+              reasoningEffort,
+              textVerbosity,
+            },
+          },
           abortSignal: req.signal,
           onChunk: ({ chunk }) => {
             if (chunk.type === "text-delta" && typeof chunk.text === "string") {
@@ -393,7 +447,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
               "assistant",
               streamedText,
               {
-              model,
+                model,
               },
               undefined,
               undefined,
@@ -459,6 +513,12 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             streamSources = extractedSources;
           }
         }
+        } catch (error) {
+          streamErrored = true;
+          logger.error("Stream execution failed", error);
+          // Re-throw to let the stream handle the error
+          throw error;
+        }
       },
       onFinish: async ({ messages }) => {
         if (streamErrored) {
@@ -474,14 +534,16 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             lastMessage.metadata && typeof lastMessage.metadata === "object"
               ? (lastMessage.metadata as Record<string, unknown>)
               : {};
-          const usageRecord = metadata.usage as Record<string, unknown> | undefined;
+          const usageRecord = metadata.usage as
+            | Record<string, unknown>
+            | undefined;
 
           const assistantMessage = createTextMessage(
             "assistant",
             finalText,
             {
-            model,
-            ...(usageRecord ? { usage: usageRecord } : {}),
+              model,
+              ...(usageRecord ? { usage: usageRecord } : {}),
             },
             undefined,
             undefined,
@@ -497,7 +559,10 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
               updatedConversationMessages,
             );
           } catch (persistError) {
-            logger.error("Failed to persist streamed conversation", persistError);
+            logger.error(
+              "Failed to persist streamed conversation",
+              persistError,
+            );
           }
         }
       },
@@ -520,6 +585,12 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
         typeof temperature === "number" && !Number.isNaN(temperature)
           ? temperature
           : undefined,
+      providerOptions: {
+        openai: {
+          reasoningEffort,
+          textVerbosity,
+        },
+      },
     });
 
     const usageMetadata =
@@ -582,8 +653,8 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       "assistant",
       result.text,
       {
-      model,
-      ...(usageMetadata ? { usage: usageMetadata } : {}),
+        model,
+        ...(usageMetadata ? { usage: usageMetadata } : {}),
       },
       undefined,
       undefined,

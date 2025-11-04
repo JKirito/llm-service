@@ -5,8 +5,27 @@ import { getDatabase } from "../../../lib/mongodb";
 interface ConversationDocument {
   _id: string;
   messages: BasicUIMessage[];
+  label?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+function extractFirstUserMessageLabel(
+  messages: BasicUIMessage[],
+): string | undefined {
+  const firstUserMessage = messages.find((msg) => msg.role === "user");
+  if (!firstUserMessage) {
+    return undefined;
+  }
+
+  // Extract text from parts
+  const textParts = firstUserMessage.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join(" ")
+    .trim();
+
+  return textParts || undefined;
 }
 
 async function getConversationCollection(): Promise<
@@ -33,9 +52,11 @@ export async function createConversation(
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const now = new Date();
+  const label = extractFirstUserMessageLabel(messages);
   const document: ConversationDocument = {
     _id: conversationId,
     messages,
+    ...(label ? { label } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -62,4 +83,36 @@ export async function replaceConversationMessages(
   if (result.matchedCount === 0) {
     throw new Error(`Conversation ${conversationId} not found`);
   }
+}
+
+export async function listConversations(
+  limit?: number,
+  skip?: number,
+): Promise<{
+  conversations: ConversationDocument[];
+  total: number;
+}> {
+  const collection = await getConversationCollection();
+  const total = await collection.countDocuments();
+
+  const query = collection
+    .find({})
+    .sort({ updatedAt: -1 })
+    .limit(limit ?? 100)
+    .skip(skip ?? 0);
+
+  const conversations = await query.toArray();
+
+  return {
+    conversations,
+    total,
+  };
+}
+
+export async function deleteConversation(
+  conversationId: string,
+): Promise<boolean> {
+  const collection = await getConversationCollection();
+  const result = await collection.deleteOne({ _id: conversationId });
+  return result.deletedCount > 0;
 }

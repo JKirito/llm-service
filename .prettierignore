@@ -1,0 +1,13 @@
+node_modules
+dist
+infra/
+**/infra/**
+**/infra/**/*
+*.md
+*.json
+*.yml
+*.yaml
+bun.lockb
+*.config.js
+*.config.ts
+
