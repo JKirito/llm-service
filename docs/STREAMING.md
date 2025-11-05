@@ -127,6 +127,11 @@ Subscribe to a stream and receive events via Server-Sent Events (SSE).
 - `fromId` (optional): Redis Stream entry ID to start from (default: `"0"` for beginning)
 - `replay` (optional): If `true`, replay entire stream and close. If `false`, stream live updates (default: `false`)
 
+**Important Notes:**
+- If the stream is **not active** (completed/error/cancelled) and `replay=false`, the request will be **rejected** with a 400 error
+- To access completed streams, you must use `replay=true` or check conversation history at `/v1/llm/conversations/:conversationId`
+- This prevents clients from polling indefinitely for streams that are no longer active
+
 **Response:** Server-Sent Events (SSE)
 
 **Event Types:**
@@ -505,11 +510,21 @@ REDIS_DB=0
 
 **Solution**: Start a new stream with POST `/v1/llm/answers`
 
+### Cannot Subscribe to Inactive Stream
+
+**Error**: `Stream for conversation conv_abc123 is not active (status: completed). Use ?replay=true to replay the completed stream, or check conversation history at /v1/llm/conversations/conv_abc123`
+
+**Causes**:
+- Attempting to subscribe to a completed/errored/cancelled stream without `replay=true`
+- Stream finished before subscription attempt
+
+**Solution**:
+- Use `replay=true` to replay the completed stream: `GET /v1/llm/stream/subscribe/conv_abc123?replay=true`
+- Or check conversation history: `GET /v1/llm/conversations/conv_abc123`
+
 ### Stream Already Completed
 
-**Error**: `Stream for conversation conv_abc123 is not active (status: completed)`
-
-**Solution**: This is expected. Use `replay=true` to replay the completed stream, or check the conversation history with GET `/v1/llm/conversations/:conversationId`
+**Note**: This is now prevented. Attempting to subscribe to a completed stream in live mode will return a 400 error with clear guidance (see above).
 
 ### EventSource Errors
 

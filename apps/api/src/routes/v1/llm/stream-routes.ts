@@ -154,6 +154,18 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
       return Response.json(response, { status: 404 });
     }
 
+    // Check if stream is inactive and handle appropriately
+    const isInactive = metadata.status !== "streaming";
+
+    // If stream is inactive and not in replay mode, provide clear guidance
+    if (isInactive && !replay) {
+      const response: ApiResponse = {
+        success: false,
+        error: `Stream for conversation ${conversationId} is not active (status: ${metadata.status}). Use ?replay=true to replay the completed stream, or check conversation history at /v1/llm/conversations/${conversationId}`,
+      };
+      return Response.json(response, { status: 400 });
+    }
+
     // Create a ReadableStream for SSE
     const stream = new ReadableStream({
       async start(controller) {
