@@ -7,6 +7,11 @@ import {
   listConversationsHandler,
   deleteConversationHandler,
 } from "./conversations";
+import {
+  getStreamStatusHandler,
+  cancelStreamHandler,
+  subscribeToStreamHandler,
+} from "./stream-routes";
 
 export const llmRoutes: Route[] = [
   {
@@ -38,5 +43,20 @@ export const llmRoutes: Route[] = [
     path: "/v1/llm/conversations/:conversationId",
     handler: deleteConversationHandler,
     methods: ["DELETE"],
+  },
+  {
+    path: "/v1/llm/stream/status/:conversationId",
+    handler: getStreamStatusHandler,
+    methods: ["GET"],
+  },
+  {
+    path: "/v1/llm/stream/cancel/:conversationId",
+    handler: cancelStreamHandler,
+    methods: ["POST"],
+  },
+  {
+    path: "/v1/llm/stream/subscribe/:conversationId",
+    handler: subscribeToStreamHandler,
+    methods: ["GET"],
   },
 ];

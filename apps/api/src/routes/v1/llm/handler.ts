@@ -466,85 +466,74 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   }
 
   if (streamRequested) {
-    let streamedText = "";
-    let streamCompleted = false;
-    let streamErrored = false;
-    let streamSources: MessageSource[] | undefined;
+    // Event-driven streaming: Write to Redis Stream instead of direct SSE
+    const {
+      initializeStream,
+      writeChunk,
+      writeSources,
+      writeMetadata,
+      completeStream,
+      errorStream,
+      isStreamCancelled,
+    } = await import("./stream-service");
 
-    const stream = createUIMessageStream({
-      async execute({ writer }) {
-        try {
-          const result = streamText({
-            model: modelInstance,
-            messages: modelMessages,
-            ...(openAITools ? { tools: openAITools } : {}),
-            temperature:
-              typeof temperature === "number" && !Number.isNaN(temperature)
-                ? temperature
-                : undefined,
-            ...(needsResponsesAPI
-              ? {
-                  providerOptions: {
-                    openai: {
-                      reasoningEffort,
-                      textVerbosity,
-                    },
+    // Initialize the Redis stream
+    await initializeStream(conversationId, model);
+
+    // Start background streaming process (non-blocking)
+    // This allows us to return immediately while streaming continues
+    (async () => {
+      let streamedText = "";
+      let streamSources: MessageSource[] | undefined;
+      const abortController = new AbortController();
+
+      // Periodic cancellation check
+      const cancellationCheckInterval = setInterval(async () => {
+        const isCancelled = await isStreamCancelled(conversationId);
+        if (isCancelled) {
+          abortController.abort();
+          clearInterval(cancellationCheckInterval);
+        }
+      }, 500); // Check every 500ms
+
+      try {
+        const result = streamText({
+          model: modelInstance,
+          messages: modelMessages,
+          ...(openAITools ? { tools: openAITools } : {}),
+          temperature:
+            typeof temperature === "number" && !Number.isNaN(temperature)
+              ? temperature
+              : undefined,
+          ...(needsResponsesAPI
+            ? {
+                providerOptions: {
+                  openai: {
+                    reasoningEffort,
+                    textVerbosity,
                   },
-                }
-              : {}),
-            abortSignal: req.signal,
-          onChunk: ({ chunk }) => {
-            if (chunk.type === "text-delta" && typeof chunk.text === "string") {
-              streamedText += chunk.text;
-            }
-          },
-          onError: ({ error }) => {
-            if (streamErrored) {
-              return;
-            }
-            streamErrored = true;
-            logger.error("Failed to stream answer", error);
-          },
-          onAbort: async () => {
-            if (streamCompleted || streamErrored) {
-              return;
-            }
-            if (streamedText.length === 0) {
-              return;
-            }
-            const assistantMessage = createTextMessage(
-              "assistant",
-              streamedText,
-              {
-                model,
-              },
-              undefined,
-              undefined,
-              streamSources,
-            );
-            const updatedConversationMessages = [
-              ...combinedMessages,
-              assistantMessage,
-            ];
-            try {
-              await replaceConversationMessages(
-                conversationId,
-                updatedConversationMessages,
-              );
-            } catch (persistError) {
-              logger.error(
-                "Failed to persist partial streamed conversation",
-                persistError,
-              );
-            }
-            logger.warn("Stream aborted by client");
-          },
+                },
+              }
+            : {}),
+          abortSignal: abortController.signal,
         });
 
-        writer.merge(result.toUIMessageStream());
+        // Stream chunks to Redis
+        for await (const chunk of result.textStream) {
+          streamedText += chunk;
+          await writeChunk(conversationId, chunk);
 
-        // Wait for stream to complete and extract sources
+          // Check for cancellation
+          if (abortController.signal.aborted) {
+            logger.info(`Stream cancelled for conversation ${conversationId}`);
+            break;
+          }
+        }
+
+        // Get final result with sources
         const finalResult = await result;
+
+        // Extract sources if available
         if ("sources" in finalResult && Array.isArray(finalResult.sources)) {
           const extractedSources: MessageSource[] = [];
           for (const source of finalResult.sources) {
@@ -580,65 +569,108 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
 
           if (extractedSources.length > 0) {
             streamSources = extractedSources;
+            await writeSources(conversationId, extractedSources);
           }
         }
-        } catch (error) {
-          streamErrored = true;
-          logger.error("Stream execution failed", error);
-          // Re-throw to let the stream handle the error
-          throw error;
-        }
-      },
-      onFinish: async ({ messages }) => {
-        if (streamErrored) {
-          return;
-        }
-        streamCompleted = true;
 
-        // Find the last assistant message to get usage and full text
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage && lastMessage.role === "assistant") {
-          let finalText = streamedText;
-          const metadata =
-            lastMessage.metadata && typeof lastMessage.metadata === "object"
-              ? (lastMessage.metadata as Record<string, unknown>)
-              : {};
-          const usageRecord = metadata.usage as
-            | Record<string, unknown>
-            | undefined;
+        // Write metadata (usage, etc.)
+        if (finalResult.usage) {
+          await writeMetadata(conversationId, {
+            usage: finalResult.usage,
+          });
+        }
 
-          const assistantMessage = createTextMessage(
-            "assistant",
-            finalText,
-            {
-              model,
-              ...(usageRecord ? { usage: usageRecord } : {}),
-            },
-            undefined,
-            undefined,
-            streamSources,
+        // Persist conversation
+        const assistantMessage = createTextMessage(
+          "assistant",
+          streamedText,
+          {
+            model,
+            ...(finalResult.usage ? { usage: finalResult.usage } : {}),
+          },
+          undefined,
+          undefined,
+          streamSources,
+        );
+        const updatedConversationMessages = [
+          ...combinedMessages,
+          assistantMessage,
+        ];
+
+        try {
+          await replaceConversationMessages(
+            conversationId,
+            updatedConversationMessages,
           );
-          const updatedConversationMessages = [
-            ...combinedMessages,
-            assistantMessage,
-          ];
-          try {
-            await replaceConversationMessages(
-              conversationId,
-              updatedConversationMessages,
-            );
-          } catch (persistError) {
-            logger.error(
-              "Failed to persist streamed conversation",
-              persistError,
-            );
-          }
+        } catch (persistError) {
+          logger.error(
+            "Failed to persist streamed conversation",
+            persistError,
+          );
         }
-      },
-    });
 
-    return createUIMessageStreamResponse({
-      stream,
+        // Mark stream as complete
+        await completeStream(conversationId);
+        clearInterval(cancellationCheckInterval);
+      } catch (error) {
+        clearInterval(cancellationCheckInterval);
+
+        // Check if it was cancelled
+        if (abortController.signal.aborted) {
+          // Save partial response if we have text
+          if (streamedText.length > 0) {
+            const assistantMessage = createTextMessage(
+              "assistant",
+              streamedText,
+              { model },
+              undefined,
+              undefined,
+              streamSources,
+            );
+            const updatedConversationMessages = [
+              ...combinedMessages,
+              assistantMessage,
+            ];
+            try {
+              await replaceConversationMessages(
+                conversationId,
+                updatedConversationMessages,
+              );
+            } catch (persistError) {
+              logger.error(
+                "Failed to persist cancelled conversation",
+                persistError,
+              );
+            }
+          }
+          logger.info(`Stream cancelled for conversation ${conversationId}`);
+          return; // Don't mark as error, cancellation was handled
+        }
+
+        // Otherwise, it's a real error
+        logger.error("Stream execution failed", error);
+        const errorMessage =
+          error instanceof Error ? error.message : "Stream execution failed";
+        await errorStream(conversationId, errorMessage);
+      }
+    })();
+
+    // Return immediately with conversationId
+    const responsePayload: ApiResponse<{
+      conversationId: string;
+      streaming: boolean;
+      message: string;
+    }> = {
+      success: true,
+      data: {
+        conversationId,
+        streaming: true,
+        message:
+          "Stream started. Use /v1/llm/stream/subscribe/:conversationId to receive events.",
+      },
+    };
+
+    return Response.json(responsePayload, {
       headers: {
         "X-Conversation-Id": conversationId,
       },
