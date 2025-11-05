@@ -210,6 +210,7 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
                 const entries = await readStream(conversationId, lastId, 50);
 
                 if (entries.length > 0) {
+                  // Process all new entries
                   for (const { id, entry } of entries) {
                     sendSSE("entry", { id, ...entry });
                     lastId = id;
@@ -220,26 +221,27 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
                       break;
                     }
                   }
-                }
 
-                // If stream is complete, stop polling
-                if (isComplete) {
-                  clearInterval(pollInterval);
-                  sendSSE("done", { message: "Stream complete" });
-                  controller.close();
-                }
-
-                // Also check metadata status
-                const currentMetadata = await getStreamMetadata(conversationId);
-                if (
-                  currentMetadata &&
-                  currentMetadata.status !== "streaming"
-                ) {
-                  clearInterval(pollInterval);
-                  sendSSE("done", {
-                    message: `Stream ${currentMetadata.status}`,
-                  });
-                  controller.close();
+                  // If we found a complete/error entry, stop polling
+                  if (isComplete) {
+                    clearInterval(pollInterval);
+                    sendSSE("done", { message: "Stream complete" });
+                    controller.close();
+                  }
+                } else {
+                  // No new entries - check if stream has finished via metadata
+                  // This prevents premature closing when entries are still being written
+                  const currentMetadata = await getStreamMetadata(conversationId);
+                  if (
+                    currentMetadata &&
+                    currentMetadata.status !== "streaming"
+                  ) {
+                    clearInterval(pollInterval);
+                    sendSSE("done", {
+                      message: `Stream ${currentMetadata.status}`,
+                    });
+                    controller.close();
+                  }
                 }
               } catch (error) {
                 logger.error("Error polling stream", error);
