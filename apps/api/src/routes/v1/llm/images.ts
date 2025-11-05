@@ -1,8 +1,5 @@
-import { experimental_generateImage as generateImage } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
 import { createLogger } from "@llm-service/logger";
 import type { ApiResponse } from "@llm-service/types";
-import { config } from "../../../config";
 import type { RouteHandler } from "../../types";
 import {
   createConversation,
@@ -10,25 +7,11 @@ import {
   replaceConversationMessages,
 } from "./conversation-store";
 import { createTextMessage, type BasicUIMessage } from "./messages";
-import { uploadGeneratedImage } from "../../../lib/image-storage";
 import { getFileUrlFromPath } from "../../../lib/storage-url";
 import type { ImageReference, ImageGenerationOptions } from "./types";
-import { initializeAzureStorage } from "@llm-service/azure-storage";
+import { generateImageWithDallE } from "./image-generation-service";
 
 const logger = createLogger("IMAGE_GENERATION");
-
-const openai = createOpenAI({
-  apiKey: config.openai.apiKey,
-});
-
-// Initialize Azure Storage if not already initialized
-let azureStorageInitialized = false;
-function ensureAzureStorage(): void {
-  if (!azureStorageInitialized) {
-    initializeAzureStorage(config.azure.connectionString);
-    azureStorageInitialized = true;
-  }
-}
 
 interface GenerateImageResponse {
   conversationId: string;
@@ -209,105 +192,18 @@ export const generateImageHandler: RouteHandler = async (req) => {
   }
 
   try {
-    ensureAzureStorage();
-
-    // Generate image using DALL-E 3
+    // Generate image using the shared service
     logger.info(`Generating image with prompt: ${options.prompt}`);
 
-    const generateResult = await generateImage({
-      model: openai.image("dall-e-3"),
-      prompt: options.prompt,
-      size: (options.size || "1024x1024") as
-        | "1024x1024"
-        | "1792x1024"
-        | "1024x1792",
-      providerOptions: {
-        openai: {
-          quality: (options.quality || "standard") as "standard" | "hd",
-          style: (options.style || "vivid") as "vivid" | "natural",
-        },
+    const result = await generateImageWithDallE(options);
+
+    const imageReferences: ImageReference[] = [result.imageReference];
+    const imageUrls: Array<{ url: string; revisedPrompt?: string }> = [
+      {
+        url: result.imageUrl,
+        revisedPrompt: result.revisedPrompt,
       },
-      ...(options.seed !== undefined ? { seed: options.seed } : {}),
-    });
-
-    const imageReferences: ImageReference[] = [];
-    const imageUrls: Array<{ url: string; revisedPrompt?: string }> = [];
-
-    // Process each generated image (DALL-E 3 returns single image in `image` property)
-    const imagesToProcess = generateResult.image
-      ? [generateResult.image]
-      : generateResult.images || [];
-
-    for (const image of imagesToProcess) {
-      try {
-        // Upload image to Azure Storage
-        const uploadResult = await uploadGeneratedImage(
-          image.uint8Array,
-          options.prompt,
-          {
-            model: "dall-e-3",
-            size: options.size || "1024x1024",
-            quality: options.quality || "standard",
-            style: options.style || "vivid",
-          },
-        );
-
-        // Create image reference
-        const imageId =
-          typeof crypto !== "undefined" &&
-          typeof crypto.randomUUID === "function"
-            ? crypto.randomUUID()
-            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-        // Extract revised prompt from provider metadata if available
-        let revisedPrompt: string | undefined;
-        if (generateResult.providerMetadata?.openai) {
-          const openaiMetadata = generateResult.providerMetadata
-            .openai as Record<string, unknown>;
-          if (openaiMetadata.images && Array.isArray(openaiMetadata.images)) {
-            const firstImageMeta = openaiMetadata.images[0] as
-              | Record<string, unknown>
-              | undefined;
-            revisedPrompt = firstImageMeta?.revised_prompt as
-              | string
-              | undefined;
-          }
-          // Fallback: check direct revised_prompt property
-          if (!revisedPrompt) {
-            revisedPrompt = openaiMetadata.revised_prompt as string | undefined;
-          }
-        }
-
-        const imageRef: ImageReference = {
-          imageId,
-          path: uploadResult.path,
-          prompt: options.prompt,
-          revisedPrompt,
-          size: options.size || "1024x1024",
-          model: "dall-e-3",
-          createdAt: new Date().toISOString(),
-        };
-
-        // Generate URL dynamically for response
-        const imageUrl = getFileUrlFromPath(uploadResult.path);
-
-        imageReferences.push(imageRef);
-        imageUrls.push({
-          url: imageUrl,
-          revisedPrompt: imageRef.revisedPrompt,
-        });
-      } catch (error) {
-        logger.error("Failed to upload generated image", error);
-        const response: ApiResponse = {
-          success: false,
-          error:
-            error instanceof Error
-              ? `Failed to upload image: ${error.message}`
-              : "Failed to upload image",
-        };
-        return Response.json(response, { status: 500 });
-      }
-    }
+    ];
 
     // Create or update conversation
     let conversationId = conversationIdFromBody;

@@ -23,7 +23,8 @@
     "@llm-service/redis": "workspace:*",
     "@llm-service/rate-limiter": "workspace:*",
     "ai": "^5.0.68",
-    "mongodb": "^6.9.0"
+    "mongodb": "^6.9.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/bun": "^1.1.0"

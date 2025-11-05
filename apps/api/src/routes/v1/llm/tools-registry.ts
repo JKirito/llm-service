@@ -1,6 +1,12 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { Tool } from "ai";
+import { tool } from "ai";
+import { z } from "zod";
 import { config } from "../../../config";
+import { generateImageWithDallE } from "./image-generation-service";
+import { createLogger } from "@llm-service/logger";
+
+const logger = createLogger("TOOLS_REGISTRY");
 
 export interface ToolDefinition {
   name: string;
@@ -113,5 +119,88 @@ toolRegistry.registerTool({
     }
     // Return code_interpreter without file container
     return getOpenAIInstance().tools.codeInterpreter({}) as Tool;
+  },
+});
+
+// Register image_generation tool
+// User-facing name: "image_generation"
+// This is a custom tool that uses DALL-E 3 to generate images
+// Does NOT require Responses API as it's a custom tool implementation
+toolRegistry.registerTool({
+  name: "image_generation", // User-facing name for API requests (tools: ["image_generation"])
+  openaiToolName: "image_generation", // Tool name that the model sees
+  description:
+    "Generate images using DALL-E 3 based on text descriptions. Use this when the user asks to create, generate, or draw an image.",
+  requiresResponsesAPI: false, // Custom tool, doesn't require Responses API
+  getTool: () => {
+    return tool({
+      description:
+        "Generate an image using DALL-E 3 based on a text prompt. Returns the generated image URL and metadata.",
+      parameters: z.object({
+        prompt: z
+          .string()
+          .min(1)
+          .max(1000)
+          .describe(
+            "A detailed text description of the image to generate. Be specific and descriptive.",
+          ),
+        size: z
+          .enum(["1024x1024", "1792x1024", "1024x1792"])
+          .optional()
+          .describe(
+            "The size of the generated image. Defaults to 1024x1024 (square).",
+          ),
+        quality: z
+          .enum(["standard", "hd"])
+          .optional()
+          .describe(
+            "The quality of the image. 'hd' creates images with finer details. Defaults to 'standard'.",
+          ),
+        style: z
+          .enum(["vivid", "natural"])
+          .optional()
+          .describe(
+            "The style of the generated image. 'vivid' creates hyper-real and dramatic images, 'natural' creates more natural-looking images. Defaults to 'vivid'.",
+          ),
+      }),
+      execute: async ({ prompt, size, quality, style }) => {
+        try {
+          logger.info(`Tool calling image generation with prompt: ${prompt}`);
+
+          const result = await generateImageWithDallE({
+            prompt,
+            size: size || "1024x1024",
+            quality: quality || "standard",
+            style: style || "vivid",
+            n: 1,
+          });
+
+          logger.info(
+            `Image generated successfully: ${result.imageReference.imageId}`,
+          );
+
+          return {
+            success: true,
+            imageId: result.imageReference.imageId,
+            imageUrl: result.imageUrl,
+            prompt: result.imageReference.prompt,
+            revisedPrompt: result.revisedPrompt,
+            size: result.imageReference.size,
+            model: result.imageReference.model,
+            path: result.imageReference.path,
+            message: `Image generated successfully! You can view it at: ${result.imageUrl}`,
+          };
+        } catch (error) {
+          logger.error("Failed to generate image via tool", error);
+          return {
+            success: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to generate image",
+          };
+        }
+      },
+    });
   },
 });
