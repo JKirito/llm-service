@@ -52,14 +52,24 @@ function getCancellationKey(conversationId: string): string {
 
 /**
  * Initialize a new stream for a conversation
+ * IMPORTANT: Deletes any existing stream data to ensure a clean slate
  */
 export async function initializeStream(
   conversationId: string,
   model: string,
 ): Promise<void> {
   const redis = getRedisClient();
+  const streamKey = getStreamKey(conversationId);
   const metadataKey = getMetadataKey(conversationId);
+  const cancellationKey = getCancellationKey(conversationId);
 
+  // Delete any existing stream data to prevent old entries from appearing
+  await Promise.all([
+    redis.del(streamKey),
+    redis.del(cancellationKey),
+  ]);
+
+  // Create fresh metadata
   const metadata: StreamMetadata = {
     conversationId,
     status: "streaming",
@@ -69,7 +79,7 @@ export async function initializeStream(
   };
 
   await redis.setex(metadataKey, 3600, JSON.stringify(metadata)); // Expire in 1 hour
-  logger.info(`Initialized stream for conversation ${conversationId}`);
+  logger.info(`Initialized stream for conversation ${conversationId} (cleaned old data)`);
 }
 
 /**

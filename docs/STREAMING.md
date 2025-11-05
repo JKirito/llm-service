@@ -401,6 +401,20 @@ function ChatComponent() {
 - **Metadata**: `llm:stream:meta:{conversationId}`
 - **Cancellation Flag**: `llm:stream:cancel:{conversationId}`
 
+### Stream Lifecycle and Cleanup
+
+**When a new stream is initialized** (via POST `/v1/llm/answers` with `stream=true`):
+1. Any **existing stream data** for that conversationId is **deleted**
+2. Fresh metadata is created with status "streaming"
+3. New stream entries start from scratch
+
+This ensures that:
+- Old stream entries don't appear in new streams
+- Each streaming request gets a clean slate
+- No confusion between old and new streaming sessions
+
+**Important**: If you use the same conversationId for multiple streaming requests, each new request will **overwrite** the previous stream data in Redis. The conversation history in MongoDB is preserved, but the Redis Stream is ephemeral and gets replaced.
+
 ### Stream Entry Format
 
 Each entry in the Redis Stream contains:
@@ -546,6 +560,25 @@ REDIS_DB=0
 **Solution**: Use `fromId` parameter to resume from last successfully received entry:
 ```
 GET /v1/llm/stream/subscribe/:conversationId?fromId=1699123456789-42
+```
+
+### Old Stream Data Appearing
+
+**Issue**: Seeing old/stale stream entries when subscribing to a new stream
+
+**Cause**: This issue has been fixed. Previously, old stream data wasn't cleaned up when initializing a new stream for an existing conversationId.
+
+**Solution**:
+- Update to the latest version (this fix is included)
+- The system now automatically deletes old stream data when `initializeStream` is called
+- Each new streaming request gets a clean slate
+
+**Manual Cleanup** (if needed):
+```bash
+# Delete stream data for a conversation (requires Redis CLI access)
+redis-cli DEL llm:stream:conv_abc123
+redis-cli DEL llm:stream:meta:conv_abc123
+redis-cli DEL llm:stream:cancel:conv_abc123
 ```
 
 ---
