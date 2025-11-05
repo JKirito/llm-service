@@ -483,6 +483,9 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     );
 
     // Create AI SDK stream with custom data parts
+    // Capture usage data for persistence
+    let capturedUsage: Record<string, unknown> | undefined;
+
     const stream = createUIMessageStream<LLMUIMessage>({
       async execute({ writer }) {
         let streamSources: MessageSource[] | undefined;
@@ -602,16 +605,15 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             }
           }
 
-          // Write usage information
+          // Write usage information with full details (includes cached, reasoning tokens, etc.)
           if (finalResult.usage) {
+            // Capture usage for persistence in onFinish
+            capturedUsage = finalResult.usage as Record<string, unknown>;
+
             writer.write({
               type: "data-usage",
               id: "usage-1",
-              data: {
-                promptTokens: finalResult.usage.promptTokens,
-                completionTokens: finalResult.usage.completionTokens,
-                totalTokens: finalResult.usage.totalTokens,
-              },
+              data: finalResult.usage, // Pass entire usage object to preserve all details
             });
 
             // Side effect: Cache to Redis
@@ -692,10 +694,29 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             (msg) => msg.role === "assistant",
           );
 
+          // Add usage metadata to assistant messages if available (captured from execute)
+          const assistantMessagesWithUsage = assistantMessages.map(
+            (msg: BasicUIMessage) => {
+              if (msg.role === "assistant" && capturedUsage) {
+                // Ensure usage metadata is attached to assistant message
+                const existingMetadata = msg.metadata ?? {};
+                return {
+                  ...msg,
+                  metadata: {
+                    ...existingMetadata,
+                    model,
+                    usage: capturedUsage, // Preserve full usage details from AI SDK
+                  },
+                };
+              }
+              return msg;
+            },
+          );
+
           // Build complete conversation: previous + user request + assistant response
           const completeConversation = [
             ...combinedMessages, // Includes: previous messages + new user message
-            ...assistantMessages, // Assistant's response from AI SDK
+            ...assistantMessagesWithUsage, // Assistant's response from AI SDK with usage
           ];
 
           await replaceConversationMessages(conversationId, completeConversation);
