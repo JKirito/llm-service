@@ -580,13 +580,19 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
           });
         }
 
+        // Convert usage to Record<string, unknown> format for metadata
+        const usageMetadata =
+          finalResult.usage && typeof finalResult.usage === "object"
+            ? (finalResult.usage as unknown as Record<string, unknown>)
+            : undefined;
+
         // Persist conversation
         const assistantMessage = createTextMessage(
           "assistant",
           streamedText,
           {
             model,
-            ...(finalResult.usage ? { usage: finalResult.usage } : {}),
+            ...(usageMetadata ? { usage: usageMetadata } : {}),
           },
           undefined,
           undefined,

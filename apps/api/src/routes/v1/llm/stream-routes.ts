@@ -182,7 +182,7 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
 
         try {
           // Send initial metadata
-          sendSSE("metadata", metadata);
+          sendSSE("metadata", metadata as unknown as Record<string, unknown>);
 
           if (replay) {
             // Replay mode: get all entries from the beginning
