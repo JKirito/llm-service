@@ -35,6 +35,7 @@ import type {
 } from "./types";
 import { parseDocumentPath } from "./types";
 import { toolRegistry } from "./tools-registry";
+import type { LLMUIMessage } from "./ui-message-types";
 
 const logger = createLogger("LLM_ROUTES");
 
@@ -466,14 +467,49 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   }
 
   if (streamRequested) {
-    let streamedText = "";
-    let streamCompleted = false;
-    let streamErrored = false;
-    let streamSources: MessageSource[] | undefined;
+    // Use Vercel AI SDK's proper streaming with Redis caching as side effect
+    const {
+      initializeStream,
+      writeChunk,
+      writeSources,
+      writeMetadata,
+      completeStream,
+      errorStream,
+    } = await import("./stream-service");
 
-    const stream = createUIMessageStream({
+    // Initialize Redis stream for caching (side effect)
+    await initializeStream(conversationId, model).catch((err) =>
+      logger.error("Failed to initialize Redis stream cache", err),
+    );
+
+    // Create AI SDK stream with custom data parts
+    const stream = createUIMessageStream<LLMUIMessage>({
       async execute({ writer }) {
+        let streamSources: MessageSource[] | undefined;
+
         try {
+          // Send initial notification (transient)
+          writer.write({
+            type: "data-notification",
+            data: {
+              message: "Processing your request...",
+              level: "info",
+            },
+            transient: true,
+          });
+
+          // Stream status (persistent)
+          writer.write({
+            type: "data-streamStatus",
+            id: "stream-status",
+            data: {
+              conversationId,
+              status: "streaming",
+              cached: true,
+            },
+          });
+
+          // Start LLM streaming
           const result = streamText({
             model: modelInstance,
             messages: modelMessages,
@@ -493,150 +529,186 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
                 }
               : {}),
             abortSignal: req.signal,
-          onChunk: ({ chunk }) => {
-            if (chunk.type === "text-delta" && typeof chunk.text === "string") {
-              streamedText += chunk.text;
-            }
-          },
-          onError: ({ error }) => {
-            if (streamErrored) {
-              return;
-            }
-            streamErrored = true;
-            logger.error("Failed to stream answer", error);
-          },
-          onAbort: async () => {
-            if (streamCompleted || streamErrored) {
-              return;
-            }
-            if (streamedText.length === 0) {
-              return;
-            }
-            const assistantMessage = createTextMessage(
-              "assistant",
-              streamedText,
-              {
-                model,
-              },
-              undefined,
-              undefined,
-              streamSources,
-            );
-            const updatedConversationMessages = [
-              ...combinedMessages,
-              assistantMessage,
-            ];
-            try {
-              await replaceConversationMessages(
-                conversationId,
-                updatedConversationMessages,
-              );
-            } catch (persistError) {
-              logger.error(
-                "Failed to persist partial streamed conversation",
-                persistError,
-              );
-            }
-            logger.warn("Stream aborted by client");
-          },
-        });
+            onChunk: ({ chunk }) => {
+              // Side effect: Cache chunks to Redis
+              if (
+                chunk.type === "text-delta" &&
+                typeof chunk.text === "string"
+              ) {
+                writeChunk(conversationId, chunk.text).catch((err) =>
+                  logger.error("Failed to cache chunk to Redis", err),
+                );
+              }
+            },
+          });
 
-        writer.merge(result.toUIMessageStream());
+          // Merge AI SDK stream (text, tools, etc.)
+          writer.merge(result.toUIMessageStream());
 
-        // Wait for stream to complete and extract sources
-        const finalResult = await result;
-        if ("sources" in finalResult && Array.isArray(finalResult.sources)) {
-          const extractedSources: MessageSource[] = [];
-          for (const source of finalResult.sources) {
-            if (
-              typeof source === "object" &&
-              source !== null &&
-              "type" in source &&
-              source.type === "source" &&
-              "sourceType" in source &&
-              "id" in source &&
-              "url" in source
-            ) {
-              const src = source as {
-                type: string;
-                sourceType: string;
-                id: string;
-                url: string;
-                title?: string;
-              };
-              extractedSources.push({
-                type: src.type,
-                sourceType: src.sourceType,
-                id: src.id,
-                url: src.url,
-                title: src.title,
-                sourceOrigin: "tool",
-                sourceProvider: requestedTools.includes("web_search")
-                  ? "web_search"
-                  : undefined,
+          // Wait for completion and extract sources
+          const finalResult = await result;
+
+          // Extract sources if available
+          if ("sources" in finalResult && Array.isArray(finalResult.sources)) {
+            const extractedSources: MessageSource[] = [];
+            for (const source of finalResult.sources) {
+              if (
+                typeof source === "object" &&
+                source !== null &&
+                "type" in source &&
+                source.type === "source" &&
+                "sourceType" in source &&
+                "id" in source &&
+                "url" in source
+              ) {
+                const src = source as {
+                  type: string;
+                  sourceType: string;
+                  id: string;
+                  url: string;
+                  title?: string;
+                };
+                extractedSources.push({
+                  type: src.type,
+                  sourceType: src.sourceType,
+                  id: src.id,
+                  url: src.url,
+                  title: src.title,
+                  sourceOrigin: "tool",
+                  sourceProvider: requestedTools.includes("web_search")
+                    ? "web_search"
+                    : undefined,
+                });
+              }
+            }
+
+            if (extractedSources.length > 0) {
+              streamSources = extractedSources;
+
+              // Write sources as custom data part
+              writer.write({
+                type: "data-sources",
+                id: "sources-1",
+                data: {
+                  sources: extractedSources,
+                  status: "success",
+                },
               });
+
+              // Side effect: Cache to Redis
+              writeSources(conversationId, extractedSources).catch((err) =>
+                logger.error("Failed to cache sources to Redis", err),
+              );
             }
           }
 
-          if (extractedSources.length > 0) {
-            streamSources = extractedSources;
+          // Write usage information
+          if (finalResult.usage) {
+            writer.write({
+              type: "data-usage",
+              id: "usage-1",
+              data: {
+                promptTokens: finalResult.usage.promptTokens,
+                completionTokens: finalResult.usage.completionTokens,
+                totalTokens: finalResult.usage.totalTokens,
+              },
+            });
+
+            // Side effect: Cache to Redis
+            writeMetadata(conversationId, {
+              usage: finalResult.usage,
+            }).catch((err) =>
+              logger.error("Failed to cache metadata to Redis", err),
+            );
           }
-        }
+
+          // Update stream status to completed
+          writer.write({
+            type: "data-streamStatus",
+            id: "stream-status",
+            data: {
+              conversationId,
+              status: "completed",
+              cached: true,
+            },
+          });
+
+          // Side effect: Mark Redis stream as complete
+          completeStream(conversationId).catch((err) =>
+            logger.error("Failed to mark Redis stream as complete", err),
+          );
+
+          // Send completion notification (transient)
+          writer.write({
+            type: "data-notification",
+            data: {
+              message: "Request completed successfully",
+              level: "info",
+            },
+            transient: true,
+          });
         } catch (error) {
-          streamErrored = true;
           logger.error("Stream execution failed", error);
-          // Re-throw to let the stream handle the error
-          throw error;
+
+          const errorMessage =
+            error instanceof Error ? error.message : "Stream execution failed";
+
+          // Write error notification
+          writer.write({
+            type: "data-notification",
+            data: {
+              message: errorMessage,
+              level: "error",
+            },
+            transient: true,
+          });
+
+          // Update stream status to error
+          writer.write({
+            type: "data-streamStatus",
+            id: "stream-status",
+            data: {
+              conversationId,
+              status: "error",
+              cached: true,
+            },
+          });
+
+          // Side effect: Mark Redis stream as error
+          errorStream(conversationId, errorMessage).catch((err) =>
+            logger.error("Failed to mark Redis stream as error", err),
+          );
+
+          throw error; // Re-throw for AI SDK to handle
         }
       },
-      onFinish: async ({ messages }) => {
-        if (streamErrored) {
-          return;
-        }
-        streamCompleted = true;
 
-        // Find the last assistant message to get usage and full text
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage && lastMessage.role === "assistant") {
-          let finalText = streamedText;
-          const metadata =
-            lastMessage.metadata && typeof lastMessage.metadata === "object"
-              ? (lastMessage.metadata as Record<string, unknown>)
-              : {};
-          const usageRecord = metadata.usage as
-            | Record<string, unknown>
-            | undefined;
-
-          const assistantMessage = createTextMessage(
-            "assistant",
-            finalText,
-            {
-              model,
-              ...(usageRecord ? { usage: usageRecord } : {}),
-            },
-            undefined,
-            undefined,
-            streamSources,
+      // onFinish: Persist conversation to MongoDB
+      onFinish: async ({ messages: aiSdkMessages }) => {
+        try {
+          // AI SDK messages only contain the assistant response
+          // We need to combine with the original request messages
+          const assistantMessages = aiSdkMessages.filter(
+            (msg) => msg.role === "assistant",
           );
-          const updatedConversationMessages = [
-            ...combinedMessages,
-            assistantMessage,
+
+          // Build complete conversation: previous + user request + assistant response
+          const completeConversation = [
+            ...combinedMessages, // Includes: previous messages + new user message
+            ...assistantMessages, // Assistant's response from AI SDK
           ];
-          try {
-            await replaceConversationMessages(
-              conversationId,
-              updatedConversationMessages,
-            );
-          } catch (persistError) {
-            logger.error(
-              "Failed to persist streamed conversation",
-              persistError,
-            );
-          }
+
+          await replaceConversationMessages(conversationId, completeConversation);
+          logger.info(
+            `Persisted conversation ${conversationId} to MongoDB (${completeConversation.length} messages)`,
+          );
+        } catch (persistError) {
+          logger.error("Failed to persist streamed conversation", persistError);
         }
       },
     });
 
+    // Return AI SDK's proper SSE response
     return createUIMessageStreamResponse({
       stream,
       headers: {
