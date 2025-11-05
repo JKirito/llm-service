@@ -17,6 +17,7 @@ import {
   containsUserMessage,
   createTextMessage,
   type BasicUIMessage,
+  type MessageMetadata,
 } from "./messages";
 import {
   createConversation,
@@ -607,18 +608,21 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
 
           // Write usage information with full details (includes cached, reasoning tokens, etc.)
           if (finalResult.usage) {
+            // Await usage if it's a Promise
+            const usage = await finalResult.usage;
+            
             // Capture usage for persistence in onFinish
-            capturedUsage = finalResult.usage as Record<string, unknown>;
+            capturedUsage = usage as Record<string, unknown>;
 
             writer.write({
               type: "data-usage",
               id: "usage-1",
-              data: finalResult.usage, // Pass entire usage object to preserve all details
+              data: usage, // Pass entire usage object to preserve all details
             });
 
             // Side effect: Cache to Redis
             writeMetadata(conversationId, {
-              usage: finalResult.usage,
+              usage,
             }).catch((err) =>
               logger.error("Failed to cache metadata to Redis", err),
             );
@@ -694,27 +698,41 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             (msg) => msg.role === "assistant",
           );
 
-          // Add usage metadata to assistant messages if available (captured from execute)
-          const assistantMessagesWithUsage = assistantMessages.map(
-            (msg: BasicUIMessage) => {
-              if (msg.role === "assistant" && capturedUsage) {
-                // Ensure usage metadata is attached to assistant message
-                const existingMetadata = msg.metadata ?? {};
-                return {
-                  ...msg,
-                  metadata: {
-                    ...existingMetadata,
-                    model,
-                    usage: capturedUsage, // Preserve full usage details from AI SDK
-                  },
-                };
-              }
-              return msg;
+          // Convert LLMUIMessage to BasicUIMessage for persistence
+          // Extract only text parts (filter out reasoning, data parts, etc.)
+          const assistantMessagesWithUsage: BasicUIMessage[] = assistantMessages.map(
+            (msg) => {
+              // Extract only text parts from LLMUIMessage
+              const textParts = msg.parts
+                .filter((part) => part.type === "text")
+                .map((part) => ({
+                  type: "text" as const,
+                  text: part.text,
+                }));
+
+              // Build metadata with usage if available
+              const existingMetadata = msg.metadata ?? {};
+              const metadata: MessageMetadata = {
+                ...existingMetadata,
+                ...(capturedUsage
+                  ? {
+                      model,
+                      usage: capturedUsage, // Preserve full usage details from AI SDK
+                    }
+                  : {}),
+              };
+
+              return {
+                id: msg.id,
+                role: msg.role,
+                parts: textParts,
+                ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+              };
             },
           );
 
           // Build complete conversation: previous + user request + assistant response
-          const completeConversation = [
+          const completeConversation: BasicUIMessage[] = [
             ...combinedMessages, // Includes: previous messages + new user message
             ...assistantMessagesWithUsage, // Assistant's response from AI SDK with usage
           ];
