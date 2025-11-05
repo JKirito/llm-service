@@ -35,6 +35,7 @@ import type {
 } from "./types";
 import { parseDocumentPath } from "./types";
 import { toolRegistry } from "./tools-registry";
+import type { LLMUIMessage } from "./ui-message-types";
 
 const logger = createLogger("LLM_ROUTES");
 
@@ -466,7 +467,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   }
 
   if (streamRequested) {
-    // Event-driven streaming: Write to Redis Stream instead of direct SSE
+    // Use Vercel AI SDK's proper streaming with Redis caching as side effect
     const {
       initializeStream,
       writeChunk,
@@ -474,209 +475,228 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       writeMetadata,
       completeStream,
       errorStream,
-      isStreamCancelled,
     } = await import("./stream-service");
 
-    // Initialize the Redis stream
-    await initializeStream(conversationId, model);
+    // Initialize Redis stream for caching (side effect)
+    await initializeStream(conversationId, model).catch((err) =>
+      logger.error("Failed to initialize Redis stream cache", err),
+    );
 
-    // Start background streaming process (non-blocking)
-    // This allows us to return immediately while streaming continues
-    (async () => {
-      let streamedText = "";
-      let streamSources: MessageSource[] | undefined;
-      const abortController = new AbortController();
-
-      // Periodic cancellation check
-      const cancellationCheckInterval = setInterval(async () => {
-        const isCancelled = await isStreamCancelled(conversationId);
-        if (isCancelled) {
-          abortController.abort();
-          clearInterval(cancellationCheckInterval);
-        }
-      }, 500); // Check every 500ms
-
-      try {
-        const result = streamText({
-          model: modelInstance,
-          messages: modelMessages,
-          ...(openAITools ? { tools: openAITools } : {}),
-          temperature:
-            typeof temperature === "number" && !Number.isNaN(temperature)
-              ? temperature
-              : undefined,
-          ...(needsResponsesAPI
-            ? {
-                providerOptions: {
-                  openai: {
-                    reasoningEffort,
-                    textVerbosity,
-                  },
-                },
-              }
-            : {}),
-          abortSignal: abortController.signal,
-        });
-
-        // Stream chunks to Redis
-        for await (const chunk of result.textStream) {
-          streamedText += chunk;
-          await writeChunk(conversationId, chunk);
-
-          // Check for cancellation
-          if (abortController.signal.aborted) {
-            logger.info(`Stream cancelled for conversation ${conversationId}`);
-            break;
-          }
-        }
-
-        // Get final result with sources
-        const finalResult = await result;
-
-        // Extract sources if available
-        if ("sources" in finalResult && Array.isArray(finalResult.sources)) {
-          const extractedSources: MessageSource[] = [];
-          for (const source of finalResult.sources) {
-            if (
-              typeof source === "object" &&
-              source !== null &&
-              "type" in source &&
-              source.type === "source" &&
-              "sourceType" in source &&
-              "id" in source &&
-              "url" in source
-            ) {
-              const src = source as {
-                type: string;
-                sourceType: string;
-                id: string;
-                url: string;
-                title?: string;
-              };
-              extractedSources.push({
-                type: src.type,
-                sourceType: src.sourceType,
-                id: src.id,
-                url: src.url,
-                title: src.title,
-                sourceOrigin: "tool",
-                sourceProvider: requestedTools.includes("web_search")
-                  ? "web_search"
-                  : undefined,
-              });
-            }
-          }
-
-          if (extractedSources.length > 0) {
-            streamSources = extractedSources;
-            await writeSources(conversationId, extractedSources);
-          }
-        }
-
-        // Write metadata (usage, etc.)
-        if (finalResult.usage) {
-          await writeMetadata(conversationId, {
-            usage: finalResult.usage,
-          });
-        }
-
-        // Convert usage to Record<string, unknown> format for metadata
-        const usageMetadata =
-          finalResult.usage && typeof finalResult.usage === "object"
-            ? (finalResult.usage as unknown as Record<string, unknown>)
-            : undefined;
-
-        // Persist conversation
-        const assistantMessage = createTextMessage(
-          "assistant",
-          streamedText,
-          {
-            model,
-            ...(usageMetadata ? { usage: usageMetadata } : {}),
-          },
-          undefined,
-          undefined,
-          streamSources,
-        );
-        const updatedConversationMessages = [
-          ...combinedMessages,
-          assistantMessage,
-        ];
+    // Create AI SDK stream with custom data parts
+    const stream = createUIMessageStream<LLMUIMessage>({
+      async execute({ writer }) {
+        let streamSources: MessageSource[] | undefined;
 
         try {
-          await replaceConversationMessages(
-            conversationId,
-            updatedConversationMessages,
-          );
-        } catch (persistError) {
-          logger.error(
-            "Failed to persist streamed conversation",
-            persistError,
-          );
-        }
+          // Send initial notification (transient)
+          writer.write({
+            type: "data-notification",
+            data: {
+              message: "Processing your request...",
+              level: "info",
+            },
+            transient: true,
+          });
 
-        // Mark stream as complete
-        await completeStream(conversationId);
-        clearInterval(cancellationCheckInterval);
-      } catch (error) {
-        clearInterval(cancellationCheckInterval);
+          // Stream status (persistent)
+          writer.write({
+            type: "data-streamStatus",
+            id: "stream-status",
+            data: {
+              conversationId,
+              status: "streaming",
+              cached: true,
+            },
+          });
 
-        // Check if it was cancelled
-        if (abortController.signal.aborted) {
-          // Save partial response if we have text
-          if (streamedText.length > 0) {
-            const assistantMessage = createTextMessage(
-              "assistant",
-              streamedText,
-              { model },
-              undefined,
-              undefined,
-              streamSources,
-            );
-            const updatedConversationMessages = [
-              ...combinedMessages,
-              assistantMessage,
-            ];
-            try {
-              await replaceConversationMessages(
-                conversationId,
-                updatedConversationMessages,
-              );
-            } catch (persistError) {
-              logger.error(
-                "Failed to persist cancelled conversation",
-                persistError,
+          // Start LLM streaming
+          const result = streamText({
+            model: modelInstance,
+            messages: modelMessages,
+            ...(openAITools ? { tools: openAITools } : {}),
+            temperature:
+              typeof temperature === "number" && !Number.isNaN(temperature)
+                ? temperature
+                : undefined,
+            ...(needsResponsesAPI
+              ? {
+                  providerOptions: {
+                    openai: {
+                      reasoningEffort,
+                      textVerbosity,
+                    },
+                  },
+                }
+              : {}),
+            abortSignal: req.signal,
+            onChunk: ({ chunk }) => {
+              // Side effect: Cache chunks to Redis
+              if (
+                chunk.type === "text-delta" &&
+                typeof chunk.text === "string"
+              ) {
+                writeChunk(conversationId, chunk.text).catch((err) =>
+                  logger.error("Failed to cache chunk to Redis", err),
+                );
+              }
+            },
+          });
+
+          // Merge AI SDK stream (text, tools, etc.)
+          writer.merge(result.toUIMessageStream());
+
+          // Wait for completion and extract sources
+          const finalResult = await result;
+
+          // Extract sources if available
+          if ("sources" in finalResult && Array.isArray(finalResult.sources)) {
+            const extractedSources: MessageSource[] = [];
+            for (const source of finalResult.sources) {
+              if (
+                typeof source === "object" &&
+                source !== null &&
+                "type" in source &&
+                source.type === "source" &&
+                "sourceType" in source &&
+                "id" in source &&
+                "url" in source
+              ) {
+                const src = source as {
+                  type: string;
+                  sourceType: string;
+                  id: string;
+                  url: string;
+                  title?: string;
+                };
+                extractedSources.push({
+                  type: src.type,
+                  sourceType: src.sourceType,
+                  id: src.id,
+                  url: src.url,
+                  title: src.title,
+                  sourceOrigin: "tool",
+                  sourceProvider: requestedTools.includes("web_search")
+                    ? "web_search"
+                    : undefined,
+                });
+              }
+            }
+
+            if (extractedSources.length > 0) {
+              streamSources = extractedSources;
+
+              // Write sources as custom data part
+              writer.write({
+                type: "data-sources",
+                id: "sources-1",
+                data: {
+                  sources: extractedSources,
+                  status: "success",
+                },
+              });
+
+              // Side effect: Cache to Redis
+              writeSources(conversationId, extractedSources).catch((err) =>
+                logger.error("Failed to cache sources to Redis", err),
               );
             }
           }
-          logger.info(`Stream cancelled for conversation ${conversationId}`);
-          return; // Don't mark as error, cancellation was handled
+
+          // Write usage information
+          if (finalResult.usage) {
+            writer.write({
+              type: "data-usage",
+              id: "usage-1",
+              data: {
+                promptTokens: finalResult.usage.promptTokens,
+                completionTokens: finalResult.usage.completionTokens,
+                totalTokens: finalResult.usage.totalTokens,
+              },
+            });
+
+            // Side effect: Cache to Redis
+            writeMetadata(conversationId, {
+              usage: finalResult.usage,
+            }).catch((err) =>
+              logger.error("Failed to cache metadata to Redis", err),
+            );
+          }
+
+          // Update stream status to completed
+          writer.write({
+            type: "data-streamStatus",
+            id: "stream-status",
+            data: {
+              conversationId,
+              status: "completed",
+              cached: true,
+            },
+          });
+
+          // Side effect: Mark Redis stream as complete
+          completeStream(conversationId).catch((err) =>
+            logger.error("Failed to mark Redis stream as complete", err),
+          );
+
+          // Send completion notification (transient)
+          writer.write({
+            type: "data-notification",
+            data: {
+              message: "Request completed successfully",
+              level: "info",
+            },
+            transient: true,
+          });
+        } catch (error) {
+          logger.error("Stream execution failed", error);
+
+          const errorMessage =
+            error instanceof Error ? error.message : "Stream execution failed";
+
+          // Write error notification
+          writer.write({
+            type: "data-notification",
+            data: {
+              message: errorMessage,
+              level: "error",
+            },
+            transient: true,
+          });
+
+          // Update stream status to error
+          writer.write({
+            type: "data-streamStatus",
+            id: "stream-status",
+            data: {
+              conversationId,
+              status: "error",
+              cached: true,
+            },
+          });
+
+          // Side effect: Mark Redis stream as error
+          errorStream(conversationId, errorMessage).catch((err) =>
+            logger.error("Failed to mark Redis stream as error", err),
+          );
+
+          throw error; // Re-throw for AI SDK to handle
         }
-
-        // Otherwise, it's a real error
-        logger.error("Stream execution failed", error);
-        const errorMessage =
-          error instanceof Error ? error.message : "Stream execution failed";
-        await errorStream(conversationId, errorMessage);
-      }
-    })();
-
-    // Return immediately with conversationId
-    const responsePayload: ApiResponse<{
-      conversationId: string;
-      streaming: boolean;
-      message: string;
-    }> = {
-      success: true,
-      data: {
-        conversationId,
-        streaming: true,
-        message:
-          "Stream started. Use /v1/llm/stream/subscribe/:conversationId to receive events.",
       },
-    };
 
-    return Response.json(responsePayload, {
+      // onFinish: Persist conversation to MongoDB
+      onFinish: async ({ messages }) => {
+        try {
+          await replaceConversationMessages(conversationId, messages);
+          logger.info(`Persisted conversation ${conversationId} to MongoDB`);
+        } catch (persistError) {
+          logger.error("Failed to persist streamed conversation", persistError);
+        }
+      },
+    });
+
+    // Return AI SDK's proper SSE response
+    return createUIMessageStreamResponse({
+      stream,
       headers: {
         "X-Conversation-Id": conversationId,
       },
