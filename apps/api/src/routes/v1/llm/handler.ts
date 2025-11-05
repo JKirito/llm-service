@@ -684,10 +684,24 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       },
 
       // onFinish: Persist conversation to MongoDB
-      onFinish: async ({ messages }) => {
+      onFinish: async ({ messages: aiSdkMessages }) => {
         try {
-          await replaceConversationMessages(conversationId, messages);
-          logger.info(`Persisted conversation ${conversationId} to MongoDB`);
+          // AI SDK messages only contain the assistant response
+          // We need to combine with the original request messages
+          const assistantMessages = aiSdkMessages.filter(
+            (msg) => msg.role === "assistant",
+          );
+
+          // Build complete conversation: previous + user request + assistant response
+          const completeConversation = [
+            ...combinedMessages, // Includes: previous messages + new user message
+            ...assistantMessages, // Assistant's response from AI SDK
+          ];
+
+          await replaceConversationMessages(conversationId, completeConversation);
+          logger.info(
+            `Persisted conversation ${conversationId} to MongoDB (${completeConversation.length} messages)`,
+          );
         } catch (persistError) {
           logger.error("Failed to persist streamed conversation", persistError);
         }
