@@ -18,7 +18,7 @@
     "dev:web": "bun run --filter=\"@llm-apps/web-app\" dev",
     "start:api": "bun run --filter=\"@llm-apps/api\" start",
     "start:web": "bun run --filter=\"@llm-apps/web-app\" start",
-    "test": "bun run test --filter=\"*\"",
+    "test": "bun test",
     "test:docs": "bun scripts/test-document-flow.ts",
     "test:quick": "bun scripts/test-quick.ts",
     "test:edge": "bun scripts/test-edge-cases.ts",
