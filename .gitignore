@@ -56,6 +56,9 @@ Thumbs.db
 tmp/
 temp/
 
+# Git worktrees
+.worktrees/
+
 # Bun
 bun.lockb
 dist/
