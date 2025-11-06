@@ -8,8 +8,6 @@ import {
   streamText,
   tool,
   type Tool,
-  TypeValidationError,
-  validateUIMessages,
 } from "ai";
 import { z } from "zod";
 import { createLogger } from "@llm-service/logger";
@@ -43,6 +41,9 @@ import type {
 import { parseDocumentPath } from "./types";
 import { toolRegistry } from "./tools-registry";
 import type { LLMUIMessage } from "./ui-message-types";
+import { validateRequestBody, validateTools } from "./validation/request-validator";
+import { validateMessages } from "./validation/message-validator";
+import { RequestValidationError } from "./validation/types";
 
 const logger = createLogger("LLM_ROUTES");
 
@@ -112,8 +113,8 @@ async function uploadFileToOpenAI(
 }
 
 export const generateAnswerHandler: RouteHandler = async (req) => {
+  // Validate request body using extracted validation module
   let body: Record<string, unknown>;
-
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
@@ -124,35 +125,45 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     return Response.json(response, { status: 400 });
   }
 
-  const model =
-    typeof body.model === "string" && body.model.trim() !== ""
-      ? body.model.trim()
-      : config.openai.defaultModel;
-
-  const temperature = body.temperature;
-
-  // Parse reasoningEffort and textVerbosity options
-  const VALID_REASONING_EFFORT = ["low", "medium", "high"] as const;
-  const VALID_TEXT_VERBOSITY = ["low", "medium", "high"] as const;
-
-  let reasoningEffort: "low" | "medium" | "high" = "low";
-  if (body.reasoningEffort !== undefined) {
-    if (
-      typeof body.reasoningEffort === "string" &&
-      VALID_REASONING_EFFORT.includes(
-        body.reasoningEffort as (typeof VALID_REASONING_EFFORT)[number],
-      )
-    ) {
-      reasoningEffort = body.reasoningEffort as "low" | "medium" | "high";
-    } else {
+  let validated;
+  try {
+    validated = validateRequestBody(body);
+  } catch (error) {
+    if (error instanceof RequestValidationError) {
       const response: ApiResponse = {
         success: false,
-        error: `reasoningEffort must be one of: ${VALID_REASONING_EFFORT.join(", ")}`,
+        error: error.message,
       };
       return Response.json(response, { status: 400 });
     }
+    throw error;
   }
 
+  const {
+    messages: rawMessages,
+    conversationId: conversationIdFromBody,
+    model,
+    modelParams,
+    documentReferences,
+    stream: streamRequested,
+  } = validated;
+
+  // Validate tools exist in registry
+  const invalidTools = await validateTools(modelParams.tools, toolRegistry);
+  if (invalidTools.length > 0) {
+    const response: ApiResponse = {
+      success: false,
+      error: `Invalid tool names: ${invalidTools.join(", ")}. Available tools: ${toolRegistry.listAllTools().map(t => t.name).join(", ")}`,
+    };
+    return Response.json(response, { status: 400 });
+  }
+
+  const requestedTools = modelParams.tools;
+  const reasoningEffort = modelParams.reasoningEffort || "low";
+  const temperature = modelParams.temperature;
+
+  // Parse textVerbosity option (legacy support, not in modelParams yet)
+  const VALID_TEXT_VERBOSITY = ["low", "medium", "high"] as const;
   let textVerbosity: "low" | "medium" | "high" = "low";
   if (body.textVerbosity !== undefined) {
     if (
@@ -171,40 +182,10 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     }
   }
 
-  // Parse tools if provided
-  let requestedTools: string[] = [];
-  if (Array.isArray(body.tools)) {
-    requestedTools = body.tools.filter(
-      (tool): tool is string => typeof tool === "string" && tool.trim() !== "",
-    );
-  }
-
-  // Validate tool names exist in registry
-  if (requestedTools.length > 0) {
-    const invalidTools = requestedTools.filter(
-      (toolName) => !toolRegistry.getTool(toolName),
-    );
-    if (invalidTools.length > 0) {
-      const response: ApiResponse = {
-        success: false,
-        error: `Invalid tool names: ${invalidTools.join(", ")}`,
-      };
-      return Response.json(response, { status: 400 });
-    }
-  }
-
   // Determine if Responses API is needed (will be updated after we get file IDs)
   const needsResponsesAPI =
     requestedTools.length > 0 &&
     toolRegistry.requiresResponsesAPI(requestedTools);
-
-  // Parse document references if provided
-  let documentReferences: string[] = [];
-  if (Array.isArray(body.documentReferences)) {
-    documentReferences = body.documentReferences.filter(
-      (ref): ref is string => typeof ref === "string" && ref.trim() !== "",
-    );
-  }
 
   // Process documents if provided
   let documentContexts: DocumentContext[] = [];
@@ -389,13 +370,6 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     };
   });
 
-  const streamRequested =
-    typeof body.stream === "boolean"
-      ? body.stream
-      : typeof body.stream === "string"
-        ? body.stream.toLowerCase() === "true"
-        : false;
-
   if (!containsUserMessage(requestMessages)) {
     const response: ApiResponse = {
       success: false,
@@ -404,11 +378,6 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     };
     return Response.json(response, { status: 400 });
   }
-
-  const conversationIdFromBody =
-    typeof body.conversationId === "string" && body.conversationId.trim() !== ""
-      ? body.conversationId.trim()
-      : null;
 
   let persistedConversationMessages: BasicUIMessage[] = [];
 
@@ -431,17 +400,8 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
 
   let validatedMessages;
   try {
-    validatedMessages = await validateUIMessages({
-      messages: combinedMessages,
-    });
+    validatedMessages = await validateMessages(combinedMessages);
   } catch (error) {
-    if (error instanceof TypeValidationError) {
-      const response: ApiResponse = {
-        success: false,
-        error: `Invalid message format: ${error.message}`,
-      };
-      return Response.json(response, { status: 400 });
-    }
     const response: ApiResponse = {
       success: false,
       error: error instanceof Error ? error.message : "Invalid messages",
