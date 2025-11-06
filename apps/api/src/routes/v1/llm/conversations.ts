@@ -6,6 +6,7 @@ import {
   listConversations,
   deleteConversation,
 } from "./conversation-store";
+import { listInteractionsByConversation } from "./persistence/interaction-store";
 
 const logger = createLogger("CONVERSATIONS");
 
@@ -191,6 +192,55 @@ export const deleteConversationHandler: RouteHandler = async (
         error instanceof Error
           ? `Failed to delete conversation: ${error.message}`
           : "Failed to delete conversation",
+    };
+    return Response.json(response, { status: 500 });
+  }
+};
+
+/**
+ * GET /v1/llm/conversations/:conversationId/interactions
+ * Fetch all interactions for a conversation
+ */
+export const getConversationInteractions: RouteHandler = async (
+  _req,
+  params,
+) => {
+  try {
+    const conversationId = params?.conversationId;
+
+    if (!conversationId || typeof conversationId !== "string") {
+      const response: ApiResponse = {
+        success: false,
+        error: "Conversation ID is required",
+      };
+      return Response.json(response, { status: 400 });
+    }
+
+    const interactions = await listInteractionsByConversation(conversationId);
+
+    const response: ApiResponse<{
+      conversationId: string;
+      interactions: typeof interactions;
+      count: number;
+    }> = {
+      success: true,
+      data: {
+        conversationId,
+        interactions,
+        count: interactions.length,
+      },
+      message: "Interactions retrieved successfully",
+    };
+
+    return Response.json(response);
+  } catch (error) {
+    logger.error("Failed to fetch conversation interactions", error);
+    const response: ApiResponse = {
+      success: false,
+      error:
+        error instanceof Error
+          ? `Failed to fetch interactions: ${error.message}`
+          : "Failed to fetch interactions",
     };
     return Response.json(response, { status: 500 });
   }

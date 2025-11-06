@@ -6,6 +6,7 @@ import {
   getConversationHandler,
   listConversationsHandler,
   deleteConversationHandler,
+  getConversationInteractions,
 } from "./conversations";
 import {
   getStreamStatusHandler,
@@ -43,6 +44,11 @@ export const llmRoutes: Route[] = [
     path: "/v1/llm/conversations/:conversationId",
     handler: deleteConversationHandler,
     methods: ["DELETE"],
+  },
+  {
+    path: "/v1/llm/conversations/:conversationId/interactions",
+    handler: getConversationInteractions,
+    methods: ["GET"],
   },
   {
     path: "/v1/llm/stream/status/:conversationId",
