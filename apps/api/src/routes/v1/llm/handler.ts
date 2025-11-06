@@ -494,8 +494,15 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       errorStream,
     } = await import("./stream-service");
 
+    // Generate messageId for this streaming response
+    // This enables concurrent requests within the same conversation
+    const messageId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
     // Initialize Redis stream for caching (side effect)
-    await initializeStream(conversationId, model).catch((err) =>
+    await initializeStream(messageId, conversationId, model).catch((err) =>
       logger.error("Failed to initialize Redis stream cache", err),
     );
 
@@ -794,7 +801,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
                 chunk.type === "text-delta" &&
                 typeof chunk.text === "string"
               ) {
-                writeChunk(conversationId, chunk.text).catch((err) =>
+                writeChunk(messageId, conversationId, chunk.text).catch((err) =>
                   logger.error("Failed to cache chunk to Redis", err),
                 );
               }
@@ -855,7 +862,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
               });
 
               // Side effect: Cache to Redis
-              writeSources(conversationId, extractedSources).catch((err) =>
+              writeSources(messageId, conversationId, extractedSources).catch((err) =>
                 logger.error("Failed to cache sources to Redis", err),
               );
             }
@@ -876,7 +883,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             });
 
             // Side effect: Cache to Redis
-            writeMetadata(conversationId, {
+            writeMetadata(messageId, conversationId, {
               usage,
             }).catch((err) =>
               logger.error("Failed to cache metadata to Redis", err),
@@ -895,7 +902,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
           });
 
           // Side effect: Mark Redis stream as complete
-          completeStream(conversationId).catch((err) =>
+          completeStream(messageId, conversationId).catch((err) =>
             logger.error("Failed to mark Redis stream as complete", err),
           );
 
@@ -936,7 +943,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
           });
 
           // Side effect: Mark Redis stream as error
-          errorStream(conversationId, errorMessage).catch((err) =>
+          errorStream(messageId, conversationId, errorMessage).catch((err) =>
             logger.error("Failed to mark Redis stream as error", err),
           );
 
@@ -956,7 +963,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
           // Convert LLMUIMessage to BasicUIMessage for persistence
           // Extract only text parts (filter out reasoning, data parts, etc.)
           const assistantMessagesWithUsage: BasicUIMessage[] = assistantMessages.map(
-            (msg) => {
+            (msg, index) => {
               // Extract only text parts from LLMUIMessage
               const textParts = msg.parts
                 .filter((part) => part.type === "text")
@@ -1003,8 +1010,10 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
                   : {}),
               };
 
+              // Use the pre-generated messageId for the first assistant message
+              // This ensures consistency with the Redis cache key
               return {
-                id: msg.id,
+                id: index === 0 ? messageId : msg.id,
                 role: msg.role,
                 parts: textParts,
                 ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
@@ -1033,6 +1042,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       stream,
       headers: {
         "X-Conversation-Id": conversationId,
+        "X-Message-Id": messageId,
       },
     });
   }

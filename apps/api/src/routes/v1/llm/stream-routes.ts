@@ -13,29 +13,30 @@ import {
 const logger = createLogger("STREAM_ROUTES");
 
 /**
- * GET /v1/llm/stream/status/:conversationId
- * Check if a conversation is actively streaming
+ * GET /v1/llm/stream/status/:messageId
+ * Check if a message stream is active
+ * NOTE: Changed from conversationId to messageId to support concurrent requests
  */
 export const getStreamStatusHandler: RouteHandler = async (req) => {
   const url = new URL(req.url);
   const pathParts = url.pathname.split("/");
-  const conversationId = pathParts[pathParts.length - 1];
+  const messageId = pathParts[pathParts.length - 1];
 
-  if (!conversationId || conversationId.trim() === "") {
+  if (!messageId || messageId.trim() === "") {
     const response: ApiResponse = {
       success: false,
-      error: "conversationId is required",
+      error: "messageId is required",
     };
     return Response.json(response, { status: 400 });
   }
 
   try {
-    const metadata = await getStreamMetadata(conversationId);
+    const metadata = await getStreamMetadata(messageId);
 
     if (!metadata) {
       const response: ApiResponse = {
         success: false,
-        error: `No stream found for conversation ${conversationId}`,
+        error: `No stream found for message ${messageId}`,
       };
       return Response.json(response, { status: 404 });
     }
@@ -48,7 +49,7 @@ export const getStreamStatusHandler: RouteHandler = async (req) => {
     return Response.json(responsePayload);
   } catch (error) {
     logger.error(
-      `Failed to get stream status for conversation ${conversationId}`,
+      `Failed to get stream status for message ${messageId}`,
       error,
     );
     const response: ApiResponse = {
@@ -63,29 +64,30 @@ export const getStreamStatusHandler: RouteHandler = async (req) => {
 };
 
 /**
- * POST /v1/llm/stream/cancel/:conversationId
+ * POST /v1/llm/stream/cancel/:messageId
  * Cancel an active stream
+ * NOTE: Changed from conversationId to messageId to support concurrent requests
  */
 export const cancelStreamHandler: RouteHandler = async (req) => {
   const url = new URL(req.url);
   const pathParts = url.pathname.split("/");
-  const conversationId = pathParts[pathParts.length - 1];
+  const messageId = pathParts[pathParts.length - 1];
 
-  if (!conversationId || conversationId.trim() === "") {
+  if (!messageId || messageId.trim() === "") {
     const response: ApiResponse = {
       success: false,
-      error: "conversationId is required",
+      error: "messageId is required",
     };
     return Response.json(response, { status: 400 });
   }
 
   try {
-    const metadata = await getStreamMetadata(conversationId);
+    const metadata = await getStreamMetadata(messageId);
 
     if (!metadata) {
       const response: ApiResponse = {
         success: false,
-        error: `No stream found for conversation ${conversationId}`,
+        error: `No stream found for message ${messageId}`,
       };
       return Response.json(response, { status: 404 });
     }
@@ -93,24 +95,24 @@ export const cancelStreamHandler: RouteHandler = async (req) => {
     if (metadata.status !== "streaming") {
       const response: ApiResponse = {
         success: false,
-        error: `Stream for conversation ${conversationId} is not active (status: ${metadata.status})`,
+        error: `Stream for message ${messageId} is not active (status: ${metadata.status})`,
       };
       return Response.json(response, { status: 400 });
     }
 
-    await cancelStream(conversationId);
+    await cancelStream(messageId);
 
     const responsePayload: ApiResponse<{ message: string }> = {
       success: true,
       data: {
-        message: `Stream cancelled for conversation ${conversationId}`,
+        message: `Stream cancelled for message ${messageId}`,
       },
     };
 
     return Response.json(responsePayload);
   } catch (error) {
     logger.error(
-      `Failed to cancel stream for conversation ${conversationId}`,
+      `Failed to cancel stream for message ${messageId}`,
       error,
     );
     const response: ApiResponse = {
@@ -123,19 +125,20 @@ export const cancelStreamHandler: RouteHandler = async (req) => {
 };
 
 /**
- * GET /v1/llm/stream/subscribe/:conversationId?fromId=<streamId>&replay=<true|false>
+ * GET /v1/llm/stream/subscribe/:messageId?fromId=<streamId>&replay=<true|false>
  * Subscribe to a stream with optional replay from a specific position
  * Uses Server-Sent Events (SSE) for real-time streaming
+ * NOTE: Changed from conversationId to messageId to support concurrent requests
  */
 export const subscribeToStreamHandler: RouteHandler = async (req) => {
   const url = new URL(req.url);
   const pathParts = url.pathname.split("/");
-  const conversationId = pathParts[pathParts.length - 1];
+  const messageId = pathParts[pathParts.length - 1];
 
-  if (!conversationId || conversationId.trim() === "") {
+  if (!messageId || messageId.trim() === "") {
     const response: ApiResponse = {
       success: false,
-      error: "conversationId is required",
+      error: "messageId is required",
     };
     return Response.json(response, { status: 400 });
   }
@@ -144,12 +147,12 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
   const replay = url.searchParams.get("replay") === "true";
 
   try {
-    const metadata = await getStreamMetadata(conversationId);
+    const metadata = await getStreamMetadata(messageId);
 
     if (!metadata) {
       const response: ApiResponse = {
         success: false,
-        error: `No stream found for conversation ${conversationId}`,
+        error: `No stream found for message ${messageId}`,
       };
       return Response.json(response, { status: 404 });
     }
@@ -161,7 +164,7 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
     if (isInactive && !replay) {
       const response: ApiResponse = {
         success: false,
-        error: `Stream for conversation ${conversationId} is not active (status: ${metadata.status}). Use ?replay=true to replay the completed stream, or check conversation history at /v1/llm/conversations/${conversationId}`,
+        error: `Stream for message ${messageId} is not active (status: ${metadata.status}). Use ?replay=true to replay the completed stream, or check conversation history at /v1/llm/conversations/${metadata.conversationId}`,
       };
       return Response.json(response, { status: 400 });
     }
@@ -186,7 +189,7 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
 
           if (replay) {
             // Replay mode: get all entries from the beginning
-            const entries = await getAllStreamEntries(conversationId);
+            const entries = await getAllStreamEntries(messageId);
 
             for (const { id, entry } of entries) {
               sendSSE("entry", { id, ...entry });
@@ -207,7 +210,7 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
 
             const pollInterval = setInterval(async () => {
               try {
-                const entries = await readStream(conversationId, lastId, 50);
+                const entries = await readStream(messageId, lastId, 50);
 
                 if (entries.length > 0) {
                   // Process all new entries
@@ -231,7 +234,7 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
                 } else {
                   // No new entries - check if stream has finished via metadata
                   // This prevents premature closing when entries are still being written
-                  const currentMetadata = await getStreamMetadata(conversationId);
+                  const currentMetadata = await getStreamMetadata(messageId);
                   if (
                     currentMetadata &&
                     currentMetadata.status !== "streaming"
@@ -261,7 +264,7 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
               clearInterval(pollInterval);
               controller.close();
               logger.info(
-                `Client disconnected from stream ${conversationId}`,
+                `Client disconnected from stream ${messageId}`,
               );
             });
           }
@@ -283,12 +286,13 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
-        "X-Conversation-Id": conversationId,
+        "X-Message-Id": messageId,
+        "X-Conversation-Id": metadata.conversationId,
       },
     });
   } catch (error) {
     logger.error(
-      `Failed to subscribe to stream for conversation ${conversationId}`,
+      `Failed to subscribe to stream for message ${messageId}`,
       error,
     );
     const response: ApiResponse = {

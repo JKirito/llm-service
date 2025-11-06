@@ -13,6 +13,7 @@ export type StreamStatus = "streaming" | "completed" | "error" | "cancelled";
  * Stream metadata stored in Redis
  */
 export interface StreamMetadata {
+  messageId: string;
   conversationId: string;
   status: StreamStatus;
   startedAt: string;
@@ -27,6 +28,7 @@ export interface StreamMetadata {
  */
 export interface StreamEntry {
   type: "chunk" | "metadata" | "sources" | "complete" | "error";
+  messageId: string;
   conversationId: string;
   timestamp: string;
   data?: string;
@@ -37,31 +39,35 @@ export interface StreamEntry {
 
 /**
  * Redis Stream keys
+ * IMPORTANT: Using messageId as the primary key to enable concurrent requests
+ * within the same conversation
  */
-function getStreamKey(conversationId: string): string {
-  return `llm:stream:${conversationId}`;
+function getStreamKey(messageId: string): string {
+  return `llm:stream:${messageId}`;
 }
 
-function getMetadataKey(conversationId: string): string {
-  return `llm:stream:meta:${conversationId}`;
+function getMetadataKey(messageId: string): string {
+  return `llm:stream:meta:${messageId}`;
 }
 
-function getCancellationKey(conversationId: string): string {
-  return `llm:stream:cancel:${conversationId}`;
+function getCancellationKey(messageId: string): string {
+  return `llm:stream:cancel:${messageId}`;
 }
 
 /**
- * Initialize a new stream for a conversation
+ * Initialize a new stream for a message
  * IMPORTANT: Deletes any existing stream data to ensure a clean slate
+ * Uses messageId as the cache key to enable concurrent requests within the same conversation
  */
 export async function initializeStream(
+  messageId: string,
   conversationId: string,
   model: string,
 ): Promise<void> {
   const redis = getRedisClient();
-  const streamKey = getStreamKey(conversationId);
-  const metadataKey = getMetadataKey(conversationId);
-  const cancellationKey = getCancellationKey(conversationId);
+  const streamKey = getStreamKey(messageId);
+  const metadataKey = getMetadataKey(messageId);
+  const cancellationKey = getCancellationKey(messageId);
 
   // Delete any existing stream data to prevent old entries from appearing
   await Promise.all([
@@ -71,6 +77,7 @@ export async function initializeStream(
 
   // Create fresh metadata
   const metadata: StreamMetadata = {
+    messageId,
     conversationId,
     status: "streaming",
     startedAt: new Date().toISOString(),
@@ -79,21 +86,23 @@ export async function initializeStream(
   };
 
   await redis.setex(metadataKey, 3600, JSON.stringify(metadata)); // Expire in 1 hour
-  logger.info(`Initialized stream for conversation ${conversationId} (cleaned old data)`);
+  logger.info(`Initialized stream for message ${messageId} in conversation ${conversationId} (cleaned old data)`);
 }
 
 /**
  * Write a text chunk to the stream
  */
 export async function writeChunk(
+  messageId: string,
   conversationId: string,
   chunk: string,
 ): Promise<void> {
   const redis = getRedisClient();
-  const streamKey = getStreamKey(conversationId);
+  const streamKey = getStreamKey(messageId);
 
   const entry: StreamEntry = {
     type: "chunk",
+    messageId,
     conversationId,
     timestamp: new Date().toISOString(),
     data: chunk,
@@ -110,7 +119,7 @@ export async function writeChunk(
   );
 
   // Update chunk count
-  const metadataKey = getMetadataKey(conversationId);
+  const metadataKey = getMetadataKey(messageId);
   const metadataStr = await redis.get(metadataKey);
   if (metadataStr) {
     const metadata: StreamMetadata = JSON.parse(metadataStr);
@@ -123,14 +132,16 @@ export async function writeChunk(
  * Write metadata to the stream
  */
 export async function writeMetadata(
+  messageId: string,
   conversationId: string,
   metadata: Record<string, unknown>,
 ): Promise<void> {
   const redis = getRedisClient();
-  const streamKey = getStreamKey(conversationId);
+  const streamKey = getStreamKey(messageId);
 
   const entry: StreamEntry = {
     type: "metadata",
+    messageId,
     conversationId,
     timestamp: new Date().toISOString(),
     metadata,
@@ -151,14 +162,16 @@ export async function writeMetadata(
  * Write sources to the stream
  */
 export async function writeSources(
+  messageId: string,
   conversationId: string,
   sources: MessageSource[],
 ): Promise<void> {
   const redis = getRedisClient();
-  const streamKey = getStreamKey(conversationId);
+  const streamKey = getStreamKey(messageId);
 
   const entry: StreamEntry = {
     type: "sources",
+    messageId,
     conversationId,
     timestamp: new Date().toISOString(),
     sources,
@@ -178,14 +191,15 @@ export async function writeSources(
 /**
  * Mark stream as completed
  */
-export async function completeStream(conversationId: string): Promise<void> {
+export async function completeStream(messageId: string, conversationId: string): Promise<void> {
   const redis = getRedisClient();
-  const streamKey = getStreamKey(conversationId);
-  const metadataKey = getMetadataKey(conversationId);
+  const streamKey = getStreamKey(messageId);
+  const metadataKey = getMetadataKey(messageId);
 
   // Write completion entry to stream
   const entry: StreamEntry = {
     type: "complete",
+    messageId,
     conversationId,
     timestamp: new Date().toISOString(),
   };
@@ -212,23 +226,25 @@ export async function completeStream(conversationId: string): Promise<void> {
   // Set stream expiration
   await redis.expire(streamKey, 3600); // Expire in 1 hour
 
-  logger.info(`Completed stream for conversation ${conversationId}`);
+  logger.info(`Completed stream for message ${messageId} in conversation ${conversationId}`);
 }
 
 /**
  * Mark stream as errored
  */
 export async function errorStream(
+  messageId: string,
   conversationId: string,
   error: string,
 ): Promise<void> {
   const redis = getRedisClient();
-  const streamKey = getStreamKey(conversationId);
-  const metadataKey = getMetadataKey(conversationId);
+  const streamKey = getStreamKey(messageId);
+  const metadataKey = getMetadataKey(messageId);
 
   // Write error entry to stream
   const entry: StreamEntry = {
     type: "error",
+    messageId,
     conversationId,
     timestamp: new Date().toISOString(),
     error,
@@ -257,16 +273,16 @@ export async function errorStream(
   // Set stream expiration
   await redis.expire(streamKey, 3600);
 
-  logger.error(`Error in stream for conversation ${conversationId}: ${error}`);
+  logger.error(`Error in stream for message ${messageId} in conversation ${conversationId}: ${error}`);
 }
 
 /**
  * Mark stream as cancelled
  */
-export async function cancelStream(conversationId: string): Promise<void> {
+export async function cancelStream(messageId: string): Promise<void> {
   const redis = getRedisClient();
-  const metadataKey = getMetadataKey(conversationId);
-  const cancellationKey = getCancellationKey(conversationId);
+  const metadataKey = getMetadataKey(messageId);
+  const cancellationKey = getCancellationKey(messageId);
 
   // Set cancellation flag
   await redis.setex(cancellationKey, 60, "1"); // Expire in 1 minute
@@ -280,17 +296,17 @@ export async function cancelStream(conversationId: string): Promise<void> {
     await redis.setex(metadataKey, 3600, JSON.stringify(metadata));
   }
 
-  logger.info(`Cancelled stream for conversation ${conversationId}`);
+  logger.info(`Cancelled stream for message ${messageId}`);
 }
 
 /**
  * Check if stream is cancelled
  */
 export async function isStreamCancelled(
-  conversationId: string,
+  messageId: string,
 ): Promise<boolean> {
   const redis = getRedisClient();
-  const cancellationKey = getCancellationKey(conversationId);
+  const cancellationKey = getCancellationKey(messageId);
   const result = await redis.get(cancellationKey);
   return result === "1";
 }
@@ -299,10 +315,10 @@ export async function isStreamCancelled(
  * Get stream metadata
  */
 export async function getStreamMetadata(
-  conversationId: string,
+  messageId: string,
 ): Promise<StreamMetadata | null> {
   const redis = getRedisClient();
-  const metadataKey = getMetadataKey(conversationId);
+  const metadataKey = getMetadataKey(messageId);
   const metadataStr = await redis.get(metadataKey);
 
   if (!metadataStr) {
@@ -314,17 +330,17 @@ export async function getStreamMetadata(
 
 /**
  * Read stream entries from a given position
- * @param conversationId - Conversation ID
+ * @param messageId - Message ID
  * @param fromId - Stream entry ID to start from (use '0' for beginning, or last known ID)
  * @param count - Number of entries to read
  */
 export async function readStream(
-  conversationId: string,
+  messageId: string,
   fromId: string = "0",
   count: number = 100,
 ): Promise<Array<{ id: string; entry: StreamEntry }>> {
   const redis = getRedisClient();
-  const streamKey = getStreamKey(conversationId);
+  const streamKey = getStreamKey(messageId);
 
   try {
     // XREAD returns: [[streamKey, [[id, [field, value, ...]]]]]
@@ -365,7 +381,7 @@ export async function readStream(
     return entries;
   } catch (error) {
     logger.error(
-      `Failed to read stream for conversation ${conversationId}:`,
+      `Failed to read stream for message ${messageId}:`,
       error,
     );
     throw error;
@@ -376,10 +392,10 @@ export async function readStream(
  * Get all stream entries (for replay)
  */
 export async function getAllStreamEntries(
-  conversationId: string,
+  messageId: string,
 ): Promise<Array<{ id: string; entry: StreamEntry }>> {
   const redis = getRedisClient();
-  const streamKey = getStreamKey(conversationId);
+  const streamKey = getStreamKey(messageId);
 
   try {
     // XRANGE to get all entries from beginning to end
@@ -403,7 +419,7 @@ export async function getAllStreamEntries(
     return entries;
   } catch (error) {
     logger.error(
-      `Failed to get all stream entries for conversation ${conversationId}:`,
+      `Failed to get all stream entries for message ${messageId}:`,
       error,
     );
     throw error;
@@ -413,11 +429,11 @@ export async function getAllStreamEntries(
 /**
  * Delete stream and metadata
  */
-export async function deleteStream(conversationId: string): Promise<void> {
+export async function deleteStream(messageId: string): Promise<void> {
   const redis = getRedisClient();
-  const streamKey = getStreamKey(conversationId);
-  const metadataKey = getMetadataKey(conversationId);
-  const cancellationKey = getCancellationKey(conversationId);
+  const streamKey = getStreamKey(messageId);
+  const metadataKey = getMetadataKey(messageId);
+  const cancellationKey = getCancellationKey(messageId);
 
   await Promise.all([
     redis.del(streamKey),
@@ -425,5 +441,5 @@ export async function deleteStream(conversationId: string): Promise<void> {
     redis.del(cancellationKey),
   ]);
 
-  logger.info(`Deleted stream for conversation ${conversationId}`);
+  logger.info(`Deleted stream for message ${messageId}`);
 }
