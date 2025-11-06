@@ -114,9 +114,9 @@ export function parseModelParams(params: unknown): ModelParams {
 
 export async function validateTools(
   tools: string[],
-  toolRegistry: { listAllTools: () => Array<{ name: string }> }
+  toolRegistry: { getAllTools: () => Array<{ name: string }> }
 ): Promise<string[]> {
-  const allTools = toolRegistry.listAllTools();
+  const allTools = toolRegistry.getAllTools();
   const validToolNames = new Set(allTools.map((t) => t.name));
 
   return tools.filter((name) => !validToolNames.has(name));
