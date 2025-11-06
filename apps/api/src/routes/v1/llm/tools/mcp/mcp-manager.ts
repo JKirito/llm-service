@@ -81,10 +81,16 @@ export class MCPManager {
       if (!config.command) {
         throw new Error(`stdio server ${config.name} missing command`);
       }
+      // Filter out undefined env vars to satisfy StdioClientTransport's Record<string, string> requirement
+      const envVars = { ...process.env, ...config.env };
+      const filteredEnv = Object.fromEntries(
+        Object.entries(envVars).filter(([_, v]) => v !== undefined)
+      ) as Record<string, string>;
+
       transport = new StdioClientTransport({
         command: config.command,
         args: config.args,
-        env: { ...process.env, ...config.env },
+        env: filteredEnv,
       });
     } else {
       if (!config.url) {

@@ -14,9 +14,11 @@ export function createMCPToolAdapter(toolKey: string) {
   // Convert MCP JSON Schema to Zod schema
   const zodSchema = convertJsonSchemaToZod(toolInfo.inputSchema);
 
+  // Note: We use 'as any' here because dynamically created Zod schemas
+  // from JSON Schema don't satisfy AI SDK's strict FlexibleSchema type requirements
   return tool({
     description: toolInfo.description || `MCP tool: ${toolInfo.toolName}`,
-    inputSchema: zodSchema,
+    inputSchema: zodSchema as any,
     async execute(args: Record<string, unknown>) {
       try {
         const result = await mcpManager.executeTool(toolKey, args);
@@ -26,7 +28,7 @@ export function createMCPToolAdapter(toolKey: string) {
         throw error;
       }
     },
-  });
+  } as any);
 }
 
 function convertJsonSchemaToZod(jsonSchema: unknown): z.ZodType {
