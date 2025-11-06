@@ -42,6 +42,7 @@ import { processDocuments } from "./documents/document-processor";
 const logger = createLogger("LLM_ROUTES");
 
 interface GenerateAnswerResponse {
+  messageId: string;
   conversationId: string;
   model: string;
   text: string;
@@ -474,6 +475,10 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     });
   }
 
+  // Generate messageId for this response
+  // This enables tracking and potential future streaming reconnection
+  const assistantMessageId = crypto.randomUUID();
+
   // TODO: Extract to text-generator.ts once it supports:
   // - Image generation tool (generate_image)
   // - Tool execution with openAITools
@@ -587,6 +592,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     const responsePayload: ApiResponse<GenerateAnswerResponse> = {
       success: true,
       data: {
+        messageId: assistantMessageId,
         conversationId,
         model,
         text: result.text,
