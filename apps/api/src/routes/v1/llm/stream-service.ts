@@ -10,6 +10,17 @@ const logger = createLogger("STREAM_SERVICE");
 export type StreamStatus = "streaming" | "completed" | "error" | "cancelled";
 
 /**
+ * Usage metadata from LLM responses
+ */
+export interface UsageMetadata {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  reasoningTokens?: number;
+  cachedTokens?: number;
+}
+
+/**
  * Stream metadata stored in Redis
  */
 export interface StreamMetadata {
@@ -32,10 +43,20 @@ export interface StreamEntry {
   conversationId: string;
   timestamp: string;
   data?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: UsageMetadata;
   sources?: MessageSource[];
   error?: string;
 }
+
+/**
+ * Redis XREAD response structure: [[streamKey, [[id, [field, value, ...]], ...]]]
+ */
+type RedisXReadResponse = Array<[string, Array<[string, Array<string>]>]>;
+
+/**
+ * Redis XRANGE response structure: [[id, [field, value, ...]], ...]
+ */
+type RedisXRangeResponse = Array<[string, Array<string>]>;
 
 /**
  * Redis Stream keys
@@ -357,17 +378,18 @@ export async function readStream(
     }
 
     const entries: Array<{ id: string; entry: StreamEntry }> = [];
+    const typedResults = results as RedisXReadResponse;
 
     // Parse Redis stream response
-    for (const [, streamEntries] of results) {
+    for (const [_, streamEntries] of typedResults) {
       if (Array.isArray(streamEntries)) {
         for (const [id, fields] of streamEntries) {
           // fields is an array like ['entry', '{"type":"chunk",...}']
           if (Array.isArray(fields) && fields.length >= 2) {
-            const entryData = fields[1] as string;
+            const entryData = fields[1];
             try {
               const entry = JSON.parse(entryData) as StreamEntry;
-              entries.push({ id: id as string, entry });
+              entries.push({ id, entry });
             } catch (parseError) {
               logger.error(
                 `Failed to parse stream entry ${id}: ${parseError}`,
@@ -402,14 +424,15 @@ export async function getAllStreamEntries(
     const results = await redis.xrange(streamKey, "-", "+");
 
     const entries: Array<{ id: string; entry: StreamEntry }> = [];
+    const typedResults = results as RedisXRangeResponse;
 
-    for (const [id, fields] of results) {
+    for (const [id, fields] of typedResults) {
       // fields is an array like ['entry', '{"type":"chunk",...}']
       if (Array.isArray(fields) && fields.length >= 2) {
-        const entryData = fields[1] as string;
+        const entryData = fields[1];
         try {
           const entry = JSON.parse(entryData) as StreamEntry;
-          entries.push({ id: id as string, entry });
+          entries.push({ id, entry });
         } catch (parseError) {
           logger.error(`Failed to parse stream entry ${id}: ${parseError}`);
         }

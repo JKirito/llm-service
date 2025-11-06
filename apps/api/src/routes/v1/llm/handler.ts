@@ -496,10 +496,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
 
     // Generate messageId for this streaming response
     // This enables concurrent requests within the same conversation
-    const messageId =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const messageId = crypto.randomUUID();
 
     // Initialize Redis stream for caching (side effect)
     await initializeStream(messageId, conversationId, model).catch((err) =>
