@@ -4,6 +4,7 @@ import { config } from "./config";
 import { getDatabase } from "./lib/mongodb";
 import { initializeRedis } from "@llm-service/redis";
 import { createIndexes } from "./routes/v1/llm/persistence/interaction-store";
+import { mcpManager } from "./routes/v1/llm/tools/mcp/mcp-manager";
 
 const logger = createLogger("API");
 
@@ -31,6 +32,15 @@ async function startServer(): Promise<void> {
       // Log error but don't crash the application
       logger.error("Failed to create MongoDB indexes, continuing startup", indexError);
     }
+
+    // Initialize MCP manager (Model Context Protocol)
+    try {
+      await mcpManager.initialize(config.mcp.servers);
+      logger.info("MCP manager initialized successfully");
+    } catch (mcpError) {
+      // Log error but don't crash the application
+      logger.error("Failed to initialize MCP manager, continuing startup", mcpError);
+    }
   } catch (error) {
     logger.error("Failed to establish initial database connections", error);
     throw error;
@@ -51,4 +61,27 @@ async function startServer(): Promise<void> {
 startServer().catch((error) => {
   logger.error("Server failed to start", error);
   process.exit(1);
+});
+
+// Graceful shutdown handler
+process.on("SIGTERM", async () => {
+  logger.info("SIGTERM received, cleaning up...");
+  try {
+    await mcpManager.cleanup();
+    logger.info("MCP manager cleaned up successfully");
+  } catch (error) {
+    logger.error("Error during MCP cleanup", error);
+  }
+  process.exit(0);
+});
+
+process.on("SIGINT", async () => {
+  logger.info("SIGINT received, cleaning up...");
+  try {
+    await mcpManager.cleanup();
+    logger.info("MCP manager cleaned up successfully");
+  } catch (error) {
+    logger.error("Error during MCP cleanup", error);
+  }
+  process.exit(0);
 });
