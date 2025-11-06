@@ -103,6 +103,29 @@ export const config = Object.freeze({
     password: redisPassword,
     db: redisDb,
   },
+  mcp: {
+    servers: [
+      // Example MCP server configurations
+      // Uncomment and configure as needed
+      /*
+      {
+        name: "filesystem",
+        type: "stdio" as const,
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/allowed/path"],
+        enabled: false,
+      },
+      {
+        name: "brave-search",
+        type: "stdio" as const,
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-brave-search"],
+        env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || "" },
+        enabled: !!process.env.BRAVE_API_KEY,
+      },
+      */
+    ],
+  },
 });
 
 export type AppConfig = typeof config;
