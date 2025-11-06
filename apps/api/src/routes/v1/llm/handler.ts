@@ -44,6 +44,8 @@ import type { LLMUIMessage } from "./ui-message-types";
 import { validateRequestBody, validateTools } from "./validation/request-validator";
 import { validateMessages } from "./validation/message-validator";
 import { RequestValidationError } from "./validation/types";
+import { processDocuments } from "./documents/document-processor";
+import { createImageGenerationTool } from "./tools/definitions/image-generator";
 
 const logger = createLogger("LLM_ROUTES");
 
@@ -187,7 +189,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     requestedTools.length > 0 &&
     toolRegistry.requiresResponsesAPI(requestedTools);
 
-  // Process documents if provided
+  // Process documents if provided using extracted module
   let documentContexts: DocumentContext[] = [];
   let fileReferences: MessageFileReference[] = [];
   let openAIFileIds: string[] = [];
@@ -197,75 +199,14 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     ensureAzureStorage();
 
     try {
-      // Process documents in parallel (Azure download + OpenAI upload)
-      const documentPromises = documentReferences.map(async (docRef) => {
-        try {
-          const { containerName, filePath } = parseDocumentPath(docRef);
-
-          // Download file from Azure Storage
-          const downloadResult = await downloadFile(containerName, filePath);
-
-          // Extract filename from metadata or use fileName
-          const filename =
-            downloadResult.metadata?.originalName || downloadResult.fileName;
-
-          // Run Azure processing and OpenAI upload in parallel
-          const [parsedContent, openAIFileId] = await Promise.all([
-            // Parse document content for system prompt
-            parseDocument(
-              downloadResult.content,
-              downloadResult.contentType || "application/octet-stream",
-              downloadResult.fileName,
-            ),
-            // Upload to OpenAI Files API if code_interpreter is requested
-            needsCodeInterpreter
-              ? uploadFileToOpenAI(downloadResult.content, filename)
-              : Promise.resolve(undefined),
-          ]);
-
-          // Generate file URL dynamically using path format
-          const fullPath = `${containerName}/${filePath}`;
-          const fileUrl = getFileUrlFromPath(fullPath);
-
-          // Build DocumentContext
-          const docContext: DocumentContext = {
-            filename,
-            content: parsedContent,
-            url: fileUrl,
-            containerName,
-            filePath,
-          };
-
-          // Build file reference for message metadata
-          const fileRef: MessageFileReference = {
-            path: `${containerName}/${filePath}`,
-            filename,
-          };
-
-          return {
-            docContext,
-            fileRef,
-            openAIFileId,
-          };
-        } catch (error) {
-          logger.error(
-            `Failed to process document reference: ${docRef}`,
-            error,
-          );
-          throw error;
-        }
-      });
-
-      const results = await Promise.all(documentPromises);
-
-      // Collect results
-      for (const result of results) {
-        documentContexts.push(result.docContext);
-        fileReferences.push(result.fileRef);
-        if (result.openAIFileId) {
-          openAIFileIds.push(result.openAIFileId);
-        }
-      }
+      const processedDocs = await processDocuments(
+        documentReferences,
+        needsCodeInterpreter,
+        uploadFileToOpenAI
+      );
+      documentContexts = processedDocs.map(d => d.documentContext);
+      fileReferences = processedDocs.map(d => d.fileReference);
+      openAIFileIds = processedDocs.map(d => d.openAIFileId).filter((id): id is string => id !== undefined);
     } catch (error) {
       logger.error("Failed to process documents", error);
       const response: ApiResponse = {
@@ -444,6 +385,15 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   }
 
   if (streamRequested) {
+    // TODO: Extract to stream-orchestrator.ts once fully implemented
+    // The streaming logic is complex and involves:
+    // - Redis caching side effects
+    // - UI message stream with custom data parts
+    // - Image generation tool execution
+    // - Source extraction and persistence
+    // - Usage tracking
+    // For now, keep inline until stream-orchestrator is fully implemented
+
     // Use Vercel AI SDK's proper streaming with Redis caching as side effect
     const {
       initializeStream,
@@ -467,16 +417,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     // Capture usage data for persistence
     let capturedUsage: Record<string, unknown> | undefined;
     // Capture image references for persistence
-    let capturedImageReferences: Array<{
-      url: string;
-      path: string;
-      prompt: string;
-      revisedPrompt?: string;
-      size: string;
-      model: string;
-      quality?: string;
-      style?: string;
-    }> = [];
+    let capturedImageReferences: ImageReference[] = [];
 
     const stream = createUIMessageStream<LLMUIMessage>({
       async execute({ writer }) {
@@ -507,227 +448,10 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
           // Build tools object merging existing OpenAI tools with generate_image tool
           const allTools: Record<string, Tool> = {
             ...(openAITools || {}),
-            generate_image: tool({
-              description:
-                "Generate one or more images. Returns public URLs so the client can render them immediately.",
-              inputSchema: z.object({
-                prompt: z
-                  .string()
-                  .describe("What to draw. Be descriptive and clear."),
-                n: z
-                  .number()
-                  .int()
-                  .min(1)
-                  .max(4)
-                  .default(1)
-                  .describe("Number of images to generate (1-4)"),
-                size: z
-                  .enum(["1024x1024", "1792x1024", "1024x1792"])
-                  .default("1024x1024")
-                  .describe("Image size"),
-                quality: z
-                  .enum(["standard", "hd"])
-                  .default("standard")
-                  .describe("Image quality (standard or hd)"),
-                style: z
-                  .enum(["vivid", "natural"])
-                  .default("vivid")
-                  .describe("Image style"),
-                seed: z.number().optional().describe("Seed for reproducibility"),
-              }),
-              async execute(
-                {
-                  prompt,
-                  n,
-                  size,
-                  quality,
-                  style,
-                  seed,
-                }: {
-                  prompt: string;
-                  n: number;
-                  size: "1024x1024" | "1792x1024" | "1024x1792";
-                  quality: "standard" | "hd";
-                  style: "vivid" | "natural";
-                  seed?: number;
-                },
-                {
-                  toolCallId,
-                  abortSignal,
-                }: {
-                  toolCallId: string;
-                  abortSignal?: AbortSignal;
-                },
-              ) {
-                try {
-                  // Notify client that image generation started
-                  writer.write({
-                    type: "data-toolStatus",
-                    id: toolCallId,
-                    data: {
-                      name: "generate_image",
-                      status: "started",
-                    },
-                    transient: true,
-                  });
-
-                  // Ensure Azure Storage is initialized
-                  ensureAzureStorage();
-
-                  // Generate image using AI SDK
-                  logger.info(`Generating image with prompt: ${prompt}`);
-                  const generateResult = await generateImage({
-                    model: openai.image("dall-e-3"),
-                    prompt,
-                    size: size as "1024x1024" | "1792x1024" | "1024x1792",
-                    providerOptions: {
-                      openai: {
-                        quality: quality as "standard" | "hd",
-                        style: style as "vivid" | "natural",
-                      },
-                    },
-                    ...(seed !== undefined ? { seed } : {}),
-                    abortSignal,
-                  });
-
-                  // Process generated images
-                  const imagesToProcess = generateResult.image
-                    ? [generateResult.image]
-                    : generateResult.images || [];
-
-                  // Extract revised prompt from provider metadata if available
-                  let revisedPrompt: string | undefined;
-                  if (generateResult.providerMetadata?.openai) {
-                    const openaiMetadata = generateResult.providerMetadata
-                      .openai as Record<string, unknown>;
-                    if (openaiMetadata.images && Array.isArray(openaiMetadata.images)) {
-                      const firstImageMeta = openaiMetadata.images[0] as
-                        | Record<string, unknown>
-                        | undefined;
-                      revisedPrompt = firstImageMeta?.revised_prompt as
-                        | string
-                        | undefined;
-                    }
-                    // Fallback: check direct revised_prompt property
-                    if (!revisedPrompt) {
-                      revisedPrompt = openaiMetadata.revised_prompt as
-                        | string
-                        | undefined;
-                    }
-                  }
-
-                  const imageUrls: string[] = [];
-                  const imageReferences: Array<{
-                    url: string;
-                    path: string;
-                  }> = [];
-
-                  for (const image of imagesToProcess) {
-                    try {
-                      // Upload to Azure Storage using uint8Array property
-                      const imageData = image.uint8Array || new Uint8Array();
-
-                      if (imageData.length > 0) {
-                        const uploadResult = await uploadGeneratedImage(
-                          imageData,
-                          prompt,
-                          {
-                            model: "dall-e-3",
-                            size,
-                            quality,
-                            style,
-                            ...(seed !== undefined
-                              ? { seed: seed.toString() }
-                              : {}),
-                          },
-                        );
-
-                        // Get public URL
-                        const publicUrl = getFileUrlFromPath(uploadResult.path);
-                        imageUrls.push(publicUrl);
-                        imageReferences.push({
-                          url: publicUrl,
-                          path: uploadResult.path,
-                        });
-
-                        // Capture image reference for persistence
-                        capturedImageReferences.push({
-                          url: publicUrl,
-                          path: uploadResult.path,
-                          prompt,
-                          revisedPrompt,
-                          size,
-                          model: "dall-e-3",
-                          quality,
-                          style,
-                        });
-                      }
-                    } catch (uploadError) {
-                      logger.error(
-                        "Failed to upload generated image",
-                        uploadError,
-                      );
-                      // If upload fails, we still need to return something
-                      // The image data should be available for fallback
-                      throw uploadError;
-                    }
-                  }
-
-                  if (imageUrls.length === 0) {
-                    throw new Error("No images were generated");
-                  }
-
-                  // Stream image data to client
-                  writer.write({
-                    type: "data-image",
-                    id: toolCallId,
-                    data: {
-                      urls: imageUrls,
-                      prompt,
-                      provider: "openai",
-                      model: "dall-e-3",
-                      size,
-                    },
-                  });
-
-                  // Return compact result for LLM
-                  return {
-                    urls: imageUrls,
-                    prompt,
-                    provider: "openai",
-                    model: "dall-e-3",
-                    size,
-                    count: imageUrls.length,
-                  };
-                } catch (error) {
-                  logger.error("Image generation failed", error);
-                  const errorMessage =
-                    error instanceof Error
-                      ? error.message
-                      : "Image generation failed";
-
-                  // Notify client of error
-                  writer.write({
-                    type: "data-toolStatus",
-                    id: toolCallId,
-                    data: {
-                      name: "generate_image",
-                      status: "error",
-                    },
-                    transient: true,
-                  });
-
-                  writer.write({
-                    type: "data-notification",
-                    data: {
-                      message: `Image generation failed: ${errorMessage}`,
-                      level: "error",
-                    },
-                    transient: true,
-                  });
-
-                  throw error;
-                }
+            generate_image: createImageGenerationTool({
+              writer,
+              onImageGenerated: (imageRefs) => {
+                capturedImageReferences.push(...imageRefs);
               },
             }),
           };
@@ -929,28 +653,8 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
                   text: part.text,
                 }));
 
-              // Convert captured image references to ImageReference format
-              const imageReferences: ImageReference[] =
-                capturedImageReferences.length > 0
-                  ? capturedImageReferences.map((imgRef) => {
-                      // Generate image ID
-                      const imageId =
-                        typeof crypto !== "undefined" &&
-                        typeof crypto.randomUUID === "function"
-                          ? crypto.randomUUID()
-                          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-                      return {
-                        imageId,
-                        path: imgRef.path,
-                        prompt: imgRef.prompt,
-                        revisedPrompt: imgRef.revisedPrompt,
-                        size: imgRef.size,
-                        model: imgRef.model,
-                        createdAt: new Date().toISOString(),
-                      };
-                    })
-                  : [];
+              // Image references are already in the correct format from the tool
+              const imageReferences: ImageReference[] = capturedImageReferences;
 
               // Build metadata with usage and image references if available
               const existingMetadata = msg.metadata ?? {};
@@ -1004,6 +708,12 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     });
   }
 
+  // TODO: Extract to text-generator.ts once it supports:
+  // - Image generation tool (generate_image)
+  // - Tool execution with openAITools
+  // - Source extraction from tool calls
+  // - Provider options for responses API
+  // For now, keep inline until text-generator is enhanced
   try {
     const result = await generateText({
       model: modelInstance,
