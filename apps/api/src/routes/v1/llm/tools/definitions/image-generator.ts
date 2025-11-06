@@ -7,6 +7,7 @@ import { getFileUrlFromPath } from "../../../../../lib/storage-url";
 import { uploadGeneratedImage } from "../../../../../lib/image-storage";
 import { initializeAzureStorage } from "@llm-service/azure-storage";
 import type { StreamWriter } from "../../streaming/stream-types";
+import type { ImageReference } from "../../types";
 
 const logger = createLogger("IMAGE_GENERATION_TOOL");
 
@@ -30,17 +31,6 @@ interface ImageGenerationResult {
   model: string;
   size: string;
   count: number;
-}
-
-interface ImageReference {
-  url: string;
-  path: string;
-  prompt: string;
-  revisedPrompt?: string;
-  size: string;
-  model: string;
-  quality?: string;
-  style?: string;
 }
 
 interface ImageGeneratorConfig {
@@ -188,7 +178,7 @@ export function createImageGenerationTool(config: ImageGeneratorConfig) {
               const publicUrl = getFileUrlFromPath(uploadResult.path);
               imageUrls.push(publicUrl);
               imageReferences.push({
-                url: publicUrl,
+                imageId: crypto.randomUUID(),
                 path: uploadResult.path,
                 prompt,
                 revisedPrompt,
@@ -196,6 +186,7 @@ export function createImageGenerationTool(config: ImageGeneratorConfig) {
                 model: "dall-e-3",
                 quality,
                 style,
+                createdAt: new Date().toISOString(),
               });
             }
           } catch (uploadError) {

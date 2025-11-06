@@ -33,6 +33,8 @@ export interface ImageReference {
   revisedPrompt?: string;
   size: string;
   model: string;
+  quality?: string;
+  style?: string;
   createdAt: string;
 }
 
