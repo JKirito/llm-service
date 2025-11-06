@@ -4,21 +4,38 @@ import { toolRegistry } from "./tools-registry";
 
 /**
  * GET /v1/llm/tools
- * List all available tools
+ * List all available tools (native + MCP)
  */
 export const listToolsHandler: RouteHandler = async (_req) => {
   try {
-    const allTools = toolRegistry.getAllTools();
+    // Use listAllTools() which includes both native and MCP tools
+    const allTools = toolRegistry.listAllTools();
 
-    const tools = allTools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      requiresResponsesAPI: tool.requiresResponsesAPI,
-    }));
+    const tools = allTools.map((tool) => {
+      // For native tools, get additional metadata
+      if (tool.type === "native") {
+        const toolDef = toolRegistry.getTool(tool.name);
+        return {
+          name: tool.name,
+          type: tool.type,
+          description: tool.description || "",
+          requiresResponsesAPI: toolDef?.requiresResponsesAPI || false,
+        };
+      }
+
+      // For MCP tools, just return basic info
+      return {
+        name: tool.name,
+        type: tool.type,
+        description: tool.description || "",
+        requiresResponsesAPI: false,
+      };
+    });
 
     const response: ApiResponse<{
       tools: Array<{
         name: string;
+        type: "native" | "mcp";
         description: string;
         requiresResponsesAPI: boolean;
       }>;

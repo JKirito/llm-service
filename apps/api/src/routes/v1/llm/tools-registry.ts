@@ -213,3 +213,22 @@ toolRegistry.registerTool({
     return getOpenAIInstance().tools.codeInterpreter({}) as Tool;
   },
 });
+
+// Register generate_image tool
+// User-facing name: "generate_image"
+// Note: This tool is created dynamically using createImageGenerationTool()
+// in the handler/orchestrator with runtime dependencies (StreamWriter, callbacks)
+// but we register it here so it appears in the tools list
+toolRegistry.registerTool({
+  name: "generate_image",
+  openaiToolName: "generate_image",
+  description:
+    "Generate images using DALL-E 3. Can create 1-4 images with customizable size, quality, and style",
+  requiresResponsesAPI: false, // generate_image works with standard API
+  getTool: () => {
+    // This is a placeholder - the actual tool is created dynamically
+    // in stream-orchestrator.ts using createImageGenerationTool()
+    // This registration is primarily for the tools list endpoint
+    throw new Error("generate_image tool must be created dynamically with runtime dependencies");
+  },
+});
