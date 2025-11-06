@@ -1,4 +1,4 @@
-import { validateUIMessages, type CoreMessage } from "ai";
+import { validateUIMessages } from "ai";
 import type { BasicUIMessage } from "../messages";
 
 export async function validateMessages(
