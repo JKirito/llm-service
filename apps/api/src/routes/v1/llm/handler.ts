@@ -213,11 +213,15 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     }
   }
 
+  // Filter out generate_image from requested tools (it's handled separately with runtime dependencies)
+  const registryTools = requestedTools.filter((tool) => tool !== "generate_image");
+  const hasGenerateImage = requestedTools.includes("generate_image");
+
   // Get OpenAI tools with file IDs (for code_interpreter)
   const openAITools =
-    requestedTools.length > 0
+    registryTools.length > 0
       ? toolRegistry.getOpenAITools(
-          requestedTools,
+          registryTools,
           openAIFileIds.length > 0 ? openAIFileIds : undefined,
         )
       : undefined;
@@ -375,6 +379,15 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       error: "Conversation state is inconsistent",
     };
     return Response.json(response, { status: 500 });
+  }
+
+  // Validate generate_image is only used with streaming
+  if (hasGenerateImage && !streamRequested) {
+    const response: ApiResponse = {
+      success: false,
+      error: "The 'generate_image' tool requires streaming mode (stream: true). Please enable streaming to use image generation.",
+    };
+    return Response.json(response, { status: 400 });
   }
 
   if (streamRequested) {
