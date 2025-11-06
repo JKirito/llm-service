@@ -3,6 +3,7 @@ import { handleRequest } from "./router";
 import { config } from "./config";
 import { getDatabase } from "./lib/mongodb";
 import { initializeRedis } from "@llm-service/redis";
+import { createIndexes } from "./routes/v1/llm/persistence/interaction-store";
 
 const logger = createLogger("API");
 
@@ -21,6 +22,15 @@ async function startServer(): Promise<void> {
 
     // Initialize MongoDB connection
     await getDatabase();
+
+    // Create MongoDB indexes for interactions collection
+    try {
+      await createIndexes();
+      logger.info("MongoDB indexes created successfully");
+    } catch (indexError) {
+      // Log error but don't crash the application
+      logger.error("Failed to create MongoDB indexes, continuing startup", indexError);
+    }
   } catch (error) {
     logger.error("Failed to establish initial database connections", error);
     throw error;
