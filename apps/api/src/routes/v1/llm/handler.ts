@@ -1,13 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   convertToModelMessages,
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-  experimental_generateImage as generateImage,
   generateText,
-  streamText,
-  tool,
-  type Tool,
 } from "ai";
 import { z } from "zod";
 import { createLogger } from "@llm-service/logger";
@@ -40,12 +34,10 @@ import type {
 } from "./types";
 import { parseDocumentPath } from "./types";
 import { toolRegistry } from "./tools-registry";
-import type { LLMUIMessage } from "./ui-message-types";
 import { validateRequestBody, validateTools } from "./validation/request-validator";
 import { validateMessages } from "./validation/message-validator";
 import { RequestValidationError } from "./validation/types";
 import { processDocuments } from "./documents/document-processor";
-import { createImageGenerationTool } from "./tools/definitions/image-generator";
 
 const logger = createLogger("LLM_ROUTES");
 
@@ -385,259 +377,45 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   }
 
   if (streamRequested) {
-    // TODO: Extract to stream-orchestrator.ts once fully implemented
-    // The streaming logic is complex and involves:
-    // - Redis caching side effects
-    // - UI message stream with custom data parts
-    // - Image generation tool execution
-    // - Source extraction and persistence
-    // - Usage tracking
-    // For now, keep inline until stream-orchestrator is fully implemented
-
-    // Use Vercel AI SDK's proper streaming with Redis caching as side effect
-    const {
-      initializeStream,
-      writeChunk,
-      writeSources,
-      writeMetadata,
-      completeStream,
-      errorStream,
-    } = await import("./stream-service");
+    const { handleStreamingRequest } = await import("./streaming/stream-orchestrator");
 
     // Generate messageId for this streaming response
     // This enables concurrent requests within the same conversation
-    const messageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
 
-    // Initialize Redis stream for caching (side effect)
-    await initializeStream(messageId, conversationId, model).catch((err) =>
-      logger.error("Failed to initialize Redis stream cache", err),
-    );
+    // Capture usage and image references for persistence
+    // This object will be populated by the orchestrator
+    const capturedData = {
+      imageReferences: [] as ImageReference[],
+      usage: undefined as Record<string, unknown> | undefined,
+    };
 
-    // Create AI SDK stream with custom data parts
-    // Capture usage data for persistence
-    let capturedUsage: Record<string, unknown> | undefined;
-    // Capture image references for persistence
-    let capturedImageReferences: ImageReference[] = [];
-
-    const stream = createUIMessageStream<LLMUIMessage>({
-      async execute({ writer }) {
-        let streamSources: MessageSource[] | undefined;
-
+    return await handleStreamingRequest({
+      messageId: assistantMessageId,
+      conversationId,
+      model: modelInstance,
+      messages: modelMessages,
+      tools: openAITools || {},
+      temperature,
+      reasoningEffort,
+      request: req,
+      textVerbosity,
+      needsResponsesAPI,
+      requestedTools,
+      capturedData,
+      onFinish: async (event: unknown) => {
         try {
-          // Send initial notification (transient)
-          writer.write({
-            type: "data-notification",
-            data: {
-              message: "Processing your request...",
-              level: "info",
-            },
-            transient: true,
-          });
+          // Type guard for event structure
+          const eventWithMessages = event as { messages: Array<{
+            role: string;
+            id?: string;
+            parts: Array<{ type: string; text?: string }>;
+            metadata?: Record<string, unknown>;
+          }> };
 
-          // Stream status (persistent)
-          writer.write({
-            type: "data-streamStatus",
-            id: "stream-status",
-            data: {
-              conversationId,
-              status: "streaming",
-              cached: true,
-            },
-          });
-
-          // Build tools object merging existing OpenAI tools with generate_image tool
-          const allTools: Record<string, Tool> = {
-            ...(openAITools || {}),
-            generate_image: createImageGenerationTool({
-              writer,
-              onImageGenerated: (imageRefs) => {
-                capturedImageReferences.push(...imageRefs);
-              },
-            }),
-          };
-
-          // Start LLM streaming
-          const result = streamText({
-            model: modelInstance,
-            messages: modelMessages,
-            tools: allTools,
-            temperature:
-              typeof temperature === "number" && !Number.isNaN(temperature)
-                ? temperature
-                : undefined,
-            ...(needsResponsesAPI
-              ? {
-                  providerOptions: {
-                    openai: {
-                      reasoningEffort,
-                      textVerbosity,
-                    },
-                  },
-                }
-              : {}),
-            abortSignal: req.signal,
-            onChunk: ({ chunk }) => {
-              // Side effect: Cache chunks to Redis
-              if (
-                chunk.type === "text-delta" &&
-                typeof chunk.text === "string"
-              ) {
-                writeChunk(messageId, conversationId, chunk.text).catch((err) =>
-                  logger.error("Failed to cache chunk to Redis", err),
-                );
-              }
-            },
-          });
-
-          // Merge AI SDK stream (text, tools, etc.)
-          writer.merge(result.toUIMessageStream());
-
-          // Wait for completion and extract sources
-          const finalResult = await result;
-
-          // Extract sources if available
-          if ("sources" in finalResult && Array.isArray(finalResult.sources)) {
-            const extractedSources: MessageSource[] = [];
-            for (const source of finalResult.sources) {
-              if (
-                typeof source === "object" &&
-                source !== null &&
-                "type" in source &&
-                source.type === "source" &&
-                "sourceType" in source &&
-                "id" in source &&
-                "url" in source
-              ) {
-                const src = source as {
-                  type: string;
-                  sourceType: string;
-                  id: string;
-                  url: string;
-                  title?: string;
-                };
-                extractedSources.push({
-                  type: src.type,
-                  sourceType: src.sourceType,
-                  id: src.id,
-                  url: src.url,
-                  title: src.title,
-                  sourceOrigin: "tool",
-                  sourceProvider: requestedTools.includes("web_search")
-                    ? "web_search"
-                    : undefined,
-                });
-              }
-            }
-
-            if (extractedSources.length > 0) {
-              streamSources = extractedSources;
-
-              // Write sources as custom data part
-              writer.write({
-                type: "data-sources",
-                id: "sources-1",
-                data: {
-                  sources: extractedSources,
-                  status: "success",
-                },
-              });
-
-              // Side effect: Cache to Redis
-              writeSources(messageId, conversationId, extractedSources).catch((err) =>
-                logger.error("Failed to cache sources to Redis", err),
-              );
-            }
-          }
-
-          // Write usage information with full details (includes cached, reasoning tokens, etc.)
-          if (finalResult.usage) {
-            // Await usage if it's a Promise
-            const usage = await finalResult.usage;
-            
-            // Capture usage for persistence in onFinish
-            capturedUsage = usage as Record<string, unknown>;
-
-            writer.write({
-              type: "data-usage",
-              id: "usage-1",
-              data: usage, // Pass entire usage object to preserve all details
-            });
-
-            // Side effect: Cache to Redis
-            writeMetadata(messageId, conversationId, {
-              usage,
-            }).catch((err) =>
-              logger.error("Failed to cache metadata to Redis", err),
-            );
-          }
-
-          // Update stream status to completed
-          writer.write({
-            type: "data-streamStatus",
-            id: "stream-status",
-            data: {
-              conversationId,
-              status: "completed",
-              cached: true,
-            },
-          });
-
-          // Side effect: Mark Redis stream as complete
-          completeStream(messageId, conversationId).catch((err) =>
-            logger.error("Failed to mark Redis stream as complete", err),
-          );
-
-          // Send completion notification (transient)
-          writer.write({
-            type: "data-notification",
-            data: {
-              message: "Request completed successfully",
-              level: "info",
-            },
-            transient: true,
-          });
-        } catch (error) {
-          logger.error("Stream execution failed", error);
-
-          const errorMessage =
-            error instanceof Error ? error.message : "Stream execution failed";
-
-          // Write error notification
-          writer.write({
-            type: "data-notification",
-            data: {
-              message: errorMessage,
-              level: "error",
-            },
-            transient: true,
-          });
-
-          // Update stream status to error
-          writer.write({
-            type: "data-streamStatus",
-            id: "stream-status",
-            data: {
-              conversationId,
-              status: "error",
-              cached: true,
-            },
-          });
-
-          // Side effect: Mark Redis stream as error
-          errorStream(messageId, conversationId, errorMessage).catch((err) =>
-            logger.error("Failed to mark Redis stream as error", err),
-          );
-
-          throw error; // Re-throw for AI SDK to handle
-        }
-      },
-
-      // onFinish: Persist conversation to MongoDB
-      onFinish: async ({ messages: aiSdkMessages }) => {
-        try {
           // AI SDK messages only contain the assistant response
           // We need to combine with the original request messages
-          const assistantMessages = aiSdkMessages.filter(
+          const assistantMessages = eventWithMessages.messages.filter(
             (msg) => msg.role === "assistant",
           );
 
@@ -647,35 +425,32 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             (msg, index) => {
               // Extract only text parts from LLMUIMessage
               const textParts = msg.parts
-                .filter((part) => part.type === "text")
+                .filter((part) => part.type === "text" && part.text !== undefined)
                 .map((part) => ({
                   type: "text" as const,
-                  text: part.text,
+                  text: part.text || "",
                 }));
 
-              // Image references are already in the correct format from the tool
-              const imageReferences: ImageReference[] = capturedImageReferences;
-
               // Build metadata with usage and image references if available
-              const existingMetadata = msg.metadata ?? {};
+              const existingMetadata = (msg.metadata || {}) as MessageMetadata;
               const metadata: MessageMetadata = {
                 ...existingMetadata,
-                ...(capturedUsage
+                ...(capturedData.usage
                   ? {
                       model,
-                      usage: capturedUsage, // Preserve full usage details from AI SDK
+                      usage: capturedData.usage, // Preserve full usage details from AI SDK
                     }
                   : {}),
-                ...(imageReferences.length > 0
-                  ? { imageReferences }
+                ...(capturedData.imageReferences.length > 0
+                  ? { imageReferences: capturedData.imageReferences }
                   : {}),
               };
 
               // Use the pre-generated messageId for the first assistant message
               // This ensures consistency with the Redis cache key
               return {
-                id: index === 0 ? messageId : msg.id,
-                role: msg.role,
+                id: index === 0 ? assistantMessageId : (msg.id || crypto.randomUUID()),
+                role: "assistant" as const,
                 parts: textParts,
                 ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
               };
@@ -695,15 +470,6 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
         } catch (persistError) {
           logger.error("Failed to persist streamed conversation", persistError);
         }
-      },
-    });
-
-    // Return AI SDK's proper SSE response
-    return createUIMessageStreamResponse({
-      stream,
-      headers: {
-        "X-Conversation-Id": conversationId,
-        "X-Message-Id": messageId,
       },
     });
   }
