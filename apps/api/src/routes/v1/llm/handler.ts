@@ -3,11 +3,15 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  experimental_generateImage as generateImage,
   generateText,
   streamText,
+  tool,
+  type Tool,
   TypeValidationError,
   validateUIMessages,
 } from "ai";
+import { z } from "zod";
 import { createLogger } from "@llm-service/logger";
 import type { ApiResponse } from "@llm-service/types";
 import { config } from "../../../config";
@@ -28,9 +32,11 @@ import { downloadFile } from "@llm-service/azure-storage";
 import { initializeAzureStorage } from "@llm-service/azure-storage";
 import { getFileUrlFromPath } from "../../../lib/storage-url";
 import { parseDocument } from "../../../lib/document-parser";
+import { uploadGeneratedImage } from "../../../lib/image-storage";
 import { SystemPromptBuilder } from "./system-prompt-builder";
 import type {
   DocumentContext,
+  ImageReference,
   MessageFileReference,
   MessageSource,
 } from "./types";
@@ -322,25 +328,35 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   }
 
   // Build enhanced system message if documents or tools are provided
-  if (documentContexts.length > 0 || requestedTools.length > 0) {
-    const builder = new SystemPromptBuilder(
-      existingSystemMessage?.parts[0]?.text || undefined,
-    );
+  // Always include image generation capability
+  const builder = new SystemPromptBuilder(
+    existingSystemMessage?.parts[0]?.text || undefined,
+  );
 
-    // Get actual OpenAI tool names for the system prompt to match what's available
-    const openAIToolNames =
-      requestedTools.length > 0
-        ? toolRegistry.getOpenAIToolNames(requestedTools)
-        : undefined;
+  // Get actual OpenAI tool names for the system prompt to match what's available
+  const openAIToolNames =
+    requestedTools.length > 0
+      ? toolRegistry.getOpenAIToolNames(requestedTools)
+      : undefined;
 
-    const enhancedSystemPrompt = builder.build({
-      documents: documentContexts,
-      tools: openAIToolNames, // Use actual OpenAI tool names, not user-facing names
-    });
+  // Always add generate_image to available tools list
+  const allToolNames = [
+    ...(openAIToolNames || []),
+    "generate_image",
+  ];
 
-    // Replace or create system message
-    existingSystemMessage = createTextMessage("system", enhancedSystemPrompt);
-  }
+  const enhancedSystemPrompt = builder.build({
+    documents: documentContexts.length > 0 ? documentContexts : undefined,
+    tools: allToolNames.length > 0 ? allToolNames : undefined,
+    customInstructions: [
+      "If the user asks to create, design, draw, render, illustrate, or generate an image, call the 'generate_image' tool.",
+      "After the tool returns, include a brief caption or description in your final answer.",
+      "Ask exactly one clarifying question if required parameters (like prompt) are missing.",
+    ].join("\n"),
+  });
+
+  // Replace or create system message
+  existingSystemMessage = createTextMessage("system", enhancedSystemPrompt);
 
   // Reconstruct messages array with enhanced system message
   const requestMessages: BasicUIMessage[] = [];
@@ -486,6 +502,17 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
     // Create AI SDK stream with custom data parts
     // Capture usage data for persistence
     let capturedUsage: Record<string, unknown> | undefined;
+    // Capture image references for persistence
+    let capturedImageReferences: Array<{
+      url: string;
+      path: string;
+      prompt: string;
+      revisedPrompt?: string;
+      size: string;
+      model: string;
+      quality?: string;
+      style?: string;
+    }> = [];
 
     const stream = createUIMessageStream<LLMUIMessage>({
       async execute({ writer }) {
@@ -513,11 +540,239 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             },
           });
 
+          // Build tools object merging existing OpenAI tools with generate_image tool
+          const allTools: Record<string, Tool> = {
+            ...(openAITools || {}),
+            generate_image: tool({
+              description:
+                "Generate one or more images. Returns public URLs so the client can render them immediately.",
+              inputSchema: z.object({
+                prompt: z
+                  .string()
+                  .describe("What to draw. Be descriptive and clear."),
+                n: z
+                  .number()
+                  .int()
+                  .min(1)
+                  .max(4)
+                  .default(1)
+                  .describe("Number of images to generate (1-4)"),
+                size: z
+                  .enum(["1024x1024", "1792x1024", "1024x1792"])
+                  .default("1024x1024")
+                  .describe("Image size"),
+                quality: z
+                  .enum(["standard", "hd"])
+                  .default("standard")
+                  .describe("Image quality (standard or hd)"),
+                style: z
+                  .enum(["vivid", "natural"])
+                  .default("vivid")
+                  .describe("Image style"),
+                seed: z.number().optional().describe("Seed for reproducibility"),
+              }),
+              async execute(
+                {
+                  prompt,
+                  n,
+                  size,
+                  quality,
+                  style,
+                  seed,
+                }: {
+                  prompt: string;
+                  n: number;
+                  size: "1024x1024" | "1792x1024" | "1024x1792";
+                  quality: "standard" | "hd";
+                  style: "vivid" | "natural";
+                  seed?: number;
+                },
+                {
+                  toolCallId,
+                  abortSignal,
+                }: {
+                  toolCallId: string;
+                  abortSignal?: AbortSignal;
+                },
+              ) {
+                try {
+                  // Notify client that image generation started
+                  writer.write({
+                    type: "data-toolStatus",
+                    id: toolCallId,
+                    data: {
+                      name: "generate_image",
+                      status: "started",
+                    },
+                    transient: true,
+                  });
+
+                  // Ensure Azure Storage is initialized
+                  ensureAzureStorage();
+
+                  // Generate image using AI SDK
+                  logger.info(`Generating image with prompt: ${prompt}`);
+                  const generateResult = await generateImage({
+                    model: openai.image("dall-e-3"),
+                    prompt,
+                    size: size as "1024x1024" | "1792x1024" | "1024x1792",
+                    providerOptions: {
+                      openai: {
+                        quality: quality as "standard" | "hd",
+                        style: style as "vivid" | "natural",
+                      },
+                    },
+                    ...(seed !== undefined ? { seed } : {}),
+                    abortSignal,
+                  });
+
+                  // Process generated images
+                  const imagesToProcess = generateResult.image
+                    ? [generateResult.image]
+                    : generateResult.images || [];
+
+                  // Extract revised prompt from provider metadata if available
+                  let revisedPrompt: string | undefined;
+                  if (generateResult.providerMetadata?.openai) {
+                    const openaiMetadata = generateResult.providerMetadata
+                      .openai as Record<string, unknown>;
+                    if (openaiMetadata.images && Array.isArray(openaiMetadata.images)) {
+                      const firstImageMeta = openaiMetadata.images[0] as
+                        | Record<string, unknown>
+                        | undefined;
+                      revisedPrompt = firstImageMeta?.revised_prompt as
+                        | string
+                        | undefined;
+                    }
+                    // Fallback: check direct revised_prompt property
+                    if (!revisedPrompt) {
+                      revisedPrompt = openaiMetadata.revised_prompt as
+                        | string
+                        | undefined;
+                    }
+                  }
+
+                  const imageUrls: string[] = [];
+                  const imageReferences: Array<{
+                    url: string;
+                    path: string;
+                  }> = [];
+
+                  for (const image of imagesToProcess) {
+                    try {
+                      // Upload to Azure Storage using uint8Array property
+                      const imageData = image.uint8Array || new Uint8Array();
+
+                      if (imageData.length > 0) {
+                        const uploadResult = await uploadGeneratedImage(
+                          imageData,
+                          prompt,
+                          {
+                            model: "dall-e-3",
+                            size,
+                            quality,
+                            style,
+                            ...(seed !== undefined
+                              ? { seed: seed.toString() }
+                              : {}),
+                          },
+                        );
+
+                        // Get public URL
+                        const publicUrl = getFileUrlFromPath(uploadResult.path);
+                        imageUrls.push(publicUrl);
+                        imageReferences.push({
+                          url: publicUrl,
+                          path: uploadResult.path,
+                        });
+
+                        // Capture image reference for persistence
+                        capturedImageReferences.push({
+                          url: publicUrl,
+                          path: uploadResult.path,
+                          prompt,
+                          revisedPrompt,
+                          size,
+                          model: "dall-e-3",
+                          quality,
+                          style,
+                        });
+                      }
+                    } catch (uploadError) {
+                      logger.error(
+                        "Failed to upload generated image",
+                        uploadError,
+                      );
+                      // If upload fails, we still need to return something
+                      // The image data should be available for fallback
+                      throw uploadError;
+                    }
+                  }
+
+                  if (imageUrls.length === 0) {
+                    throw new Error("No images were generated");
+                  }
+
+                  // Stream image data to client
+                  writer.write({
+                    type: "data-image",
+                    id: toolCallId,
+                    data: {
+                      urls: imageUrls,
+                      prompt,
+                      provider: "openai",
+                      model: "dall-e-3",
+                      size,
+                    },
+                  });
+
+                  // Return compact result for LLM
+                  return {
+                    urls: imageUrls,
+                    prompt,
+                    provider: "openai",
+                    model: "dall-e-3",
+                    size,
+                    count: imageUrls.length,
+                  };
+                } catch (error) {
+                  logger.error("Image generation failed", error);
+                  const errorMessage =
+                    error instanceof Error
+                      ? error.message
+                      : "Image generation failed";
+
+                  // Notify client of error
+                  writer.write({
+                    type: "data-toolStatus",
+                    id: toolCallId,
+                    data: {
+                      name: "generate_image",
+                      status: "error",
+                    },
+                    transient: true,
+                  });
+
+                  writer.write({
+                    type: "data-notification",
+                    data: {
+                      message: `Image generation failed: ${errorMessage}`,
+                      level: "error",
+                    },
+                    transient: true,
+                  });
+
+                  throw error;
+                }
+              },
+            }),
+          };
+
           // Start LLM streaming
           const result = streamText({
             model: modelInstance,
             messages: modelMessages,
-            ...(openAITools ? { tools: openAITools } : {}),
+            tools: allTools,
             temperature:
               typeof temperature === "number" && !Number.isNaN(temperature)
                 ? temperature
@@ -710,7 +965,30 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
                   text: part.text,
                 }));
 
-              // Build metadata with usage if available
+              // Convert captured image references to ImageReference format
+              const imageReferences: ImageReference[] =
+                capturedImageReferences.length > 0
+                  ? capturedImageReferences.map((imgRef) => {
+                      // Generate image ID
+                      const imageId =
+                        typeof crypto !== "undefined" &&
+                        typeof crypto.randomUUID === "function"
+                          ? crypto.randomUUID()
+                          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+                      return {
+                        imageId,
+                        path: imgRef.path,
+                        prompt: imgRef.prompt,
+                        revisedPrompt: imgRef.revisedPrompt,
+                        size: imgRef.size,
+                        model: imgRef.model,
+                        createdAt: new Date().toISOString(),
+                      };
+                    })
+                  : [];
+
+              // Build metadata with usage and image references if available
               const existingMetadata = msg.metadata ?? {};
               const metadata: MessageMetadata = {
                 ...existingMetadata,
@@ -719,6 +997,9 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
                       model,
                       usage: capturedUsage, // Preserve full usage details from AI SDK
                     }
+                  : {}),
+                ...(imageReferences.length > 0
+                  ? { imageReferences }
                   : {}),
               };
 

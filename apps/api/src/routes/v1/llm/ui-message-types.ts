@@ -46,5 +46,20 @@ export type LLMUIMessage = UIMessage<
       completionTokens?: number;
       totalTokens?: number;
     };
+
+    // Image generation results
+    image: {
+      urls: string[];
+      prompt: string;
+      provider: string;
+      model?: string;
+      size?: string;
+    };
+
+    // Tool status (for showing loading states)
+    toolStatus: {
+      name: string;
+      status: "started" | "completed" | "error";
+    };
   }
 >;
