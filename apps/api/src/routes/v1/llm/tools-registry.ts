@@ -1,6 +1,8 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { Tool } from "ai";
 import { config } from "../../../config";
+import { mcpManager } from "./tools/mcp/mcp-manager";
+import { createMCPToolAdapter } from "./tools/mcp/mcp-adapter";
 
 export interface ToolDefinition {
   name: string;
@@ -33,16 +35,30 @@ export class ToolRegistry {
 
   getOpenAITools(names: string[], fileIds?: string[]): Record<string, Tool> {
     const tools: Record<string, Tool> = {};
-    const requestedTools = this.getToolsByName(names);
 
-    for (const toolDef of requestedTools) {
-      const toolInstance = toolDef.getTool(fileIds);
-      // For OpenAI's Responses API tools (like webSearchPreview), the tool name
-      // must match what OpenAI expects. The tool instance from webSearchPreview
-      // has the name "web_search_preview" internally, so we use that as the key.
-      // However, if the tool instance has a different name property, we need to
-      // ensure consistency. The Record key determines what name the model sees.
-      tools[toolDef.openaiToolName] = toolInstance;
+    for (const name of names) {
+      // Try to get native tool first
+      const nativeToolDef = this.getTool(name);
+      if (nativeToolDef) {
+        const toolInstance = nativeToolDef.getTool(fileIds);
+        // For OpenAI's Responses API tools (like webSearchPreview), the tool name
+        // must match what OpenAI expects. The tool instance from webSearchPreview
+        // has the name "web_search_preview" internally, so we use that as the key.
+        // However, if the tool instance has a different name property, we need to
+        // ensure consistency. The Record key determines what name the model sees.
+        tools[nativeToolDef.openaiToolName] = toolInstance;
+        continue;
+      }
+
+      // Check MCP tools (format: "server:tool")
+      if (name.includes(":")) {
+        const toolInfo = mcpManager.getToolInfo(name);
+        if (toolInfo) {
+          const mcpTool = createMCPToolAdapter(name);
+          // Use the full "server:tool" format as the key for MCP tools
+          tools[name] = mcpTool;
+        }
+      }
     }
 
     return tools;
@@ -51,15 +67,97 @@ export class ToolRegistry {
   /**
    * Get the actual OpenAI tool names that will be available to the model
    * This helps ensure system prompts match actual tool names
+   * For MCP tools, returns the full "server:tool" format
    */
   getOpenAIToolNames(names: string[]): string[] {
-    const requestedTools = this.getToolsByName(names);
-    return requestedTools.map((tool) => tool.openaiToolName);
+    const toolNames: string[] = [];
+
+    for (const name of names) {
+      // Native tools
+      const nativeToolDef = this.getTool(name);
+      if (nativeToolDef) {
+        toolNames.push(nativeToolDef.openaiToolName);
+        continue;
+      }
+
+      // MCP tools (format: "server:tool")
+      if (name.includes(":")) {
+        const toolInfo = mcpManager.getToolInfo(name);
+        if (toolInfo) {
+          toolNames.push(name); // Use the full "server:tool" format
+        }
+      }
+    }
+
+    return toolNames;
   }
 
   requiresResponsesAPI(names: string[]): boolean {
-    const requestedTools = this.getToolsByName(names);
+    // Only check native tools - MCP tools don't require Responses API
+    const nativeToolNames = names.filter((name) => !name.includes(":"));
+    const requestedTools = this.getToolsByName(nativeToolNames);
     return requestedTools.some((tool) => tool.requiresResponsesAPI);
+  }
+
+  /**
+   * Initialize the tool registry
+   * MCP manager is already initialized in index.ts, but this method
+   * can be used for future registry setup
+   */
+  async initialize(): Promise<void> {
+    // MCP manager is already initialized in index.ts
+    // This method is here for consistency with the design
+  }
+
+  /**
+   * List all available tools (both native and MCP)
+   * Returns a unified list with tool name, type, and description
+   */
+  listAllTools(): Array<{ name: string; type: "native" | "mcp"; description?: string }> {
+    const tools: Array<{ name: string; type: "native" | "mcp"; description?: string }> = [];
+
+    // Native tools
+    for (const toolDef of this.getAllTools()) {
+      tools.push({
+        name: toolDef.name,
+        type: "native",
+        description: toolDef.description,
+      });
+    }
+
+    // MCP tools
+    for (const toolInfo of mcpManager.listAvailableTools()) {
+      const toolKey = `${toolInfo.serverName}:${toolInfo.toolName}`;
+      tools.push({
+        name: toolKey,
+        type: "mcp",
+        description: toolInfo.description,
+      });
+    }
+
+    return tools;
+  }
+
+  /**
+   * Get a tool by name, checking both native and MCP tools
+   * MCP tools use the format "server:tool"
+   */
+  getToolInstance(name: string, fileIds?: string[]): Tool | undefined {
+    // Check native tools first
+    const nativeToolDef = this.getTool(name);
+    if (nativeToolDef) {
+      return nativeToolDef.getTool(fileIds);
+    }
+
+    // Check MCP tools (format: "server:tool")
+    if (name.includes(":")) {
+      const toolInfo = mcpManager.getToolInfo(name);
+      if (toolInfo) {
+        return createMCPToolAdapter(name);
+      }
+    }
+
+    return undefined;
   }
 }
 
