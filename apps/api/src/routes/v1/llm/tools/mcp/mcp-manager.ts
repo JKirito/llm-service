@@ -55,7 +55,7 @@ export class MCPManager {
         }
 
         logger.info(
-          `Connected to MCP server: ${server.name} (${tools.tools.length} tools)`
+          `Connected to MCP server: ${server.name} (${tools.tools.length} tools)`,
         );
       } catch (error) {
         logger.error(`Failed to connect to MCP server ${server.name}`, error);
@@ -73,7 +73,7 @@ export class MCPManager {
         capabilities: {
           tools: {},
         },
-      }
+      },
     );
 
     let transport;
@@ -84,7 +84,7 @@ export class MCPManager {
       // Filter out undefined env vars to satisfy StdioClientTransport's Record<string, string> requirement
       const envVars = { ...process.env, ...config.env };
       const filteredEnv = Object.fromEntries(
-        Object.entries(envVars).filter(([_, v]) => v !== undefined)
+        Object.entries(envVars).filter(([_, v]) => v !== undefined),
       ) as Record<string, string>;
 
       transport = new StdioClientTransport({
@@ -113,7 +113,7 @@ export class MCPManager {
 
   async executeTool(
     toolKey: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
   ): Promise<unknown> {
     const toolInfo = this.availableTools.get(toolKey);
     if (!toolInfo) {

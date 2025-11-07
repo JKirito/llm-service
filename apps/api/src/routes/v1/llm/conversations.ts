@@ -23,7 +23,10 @@ export const listConversationsHandler: RouteHandler = async (req) => {
     const limit = limitParam ? Number.parseInt(limitParam, 10) : undefined;
     const skip = skipParam ? Number.parseInt(skipParam, 10) : undefined;
 
-    if (limit !== undefined && (Number.isNaN(limit) || limit < 1 || limit > 1000)) {
+    if (
+      limit !== undefined &&
+      (Number.isNaN(limit) || limit < 1 || limit > 1000)
+    ) {
       const response: ApiResponse = {
         success: false,
         error: "Limit must be a number between 1 and 1000",
@@ -87,10 +90,7 @@ export const listConversationsHandler: RouteHandler = async (req) => {
  * GET /v1/llm/conversations/:conversationId
  * Fetch a conversation by ID
  */
-export const getConversationHandler: RouteHandler = async (
-  _req,
-  params,
-) => {
+export const getConversationHandler: RouteHandler = async (_req, params) => {
   try {
     const conversationId = params?.conversationId;
 
@@ -148,10 +148,7 @@ export const getConversationHandler: RouteHandler = async (
  * DELETE /v1/llm/conversations/:conversationId
  * Delete a conversation by ID
  */
-export const deleteConversationHandler: RouteHandler = async (
-  _req,
-  params,
-) => {
+export const deleteConversationHandler: RouteHandler = async (_req, params) => {
   try {
     const conversationId = params?.conversationId;
 
@@ -245,4 +242,3 @@ export const getConversationInteractions: RouteHandler = async (
     return Response.json(response, { status: 500 });
   }
 };
-

@@ -113,8 +113,16 @@ export class ToolRegistry {
    * List all available tools (both native and MCP)
    * Returns a unified list with tool name, type, and description
    */
-  listAllTools(): Array<{ name: string; type: "native" | "mcp"; description?: string }> {
-    const tools: Array<{ name: string; type: "native" | "mcp"; description?: string }> = [];
+  listAllTools(): Array<{
+    name: string;
+    type: "native" | "mcp";
+    description?: string;
+  }> {
+    const tools: Array<{
+      name: string;
+      type: "native" | "mcp";
+      description?: string;
+    }> = [];
 
     // Native tools
     for (const toolDef of this.getAllTools()) {
@@ -229,6 +237,8 @@ toolRegistry.registerTool({
     // This is a placeholder - the actual tool is created dynamically
     // in stream-orchestrator.ts using createImageGenerationTool()
     // This registration is primarily for the tools list endpoint
-    throw new Error("generate_image tool must be created dynamically with runtime dependencies");
+    throw new Error(
+      "generate_image tool must be created dynamically with runtime dependencies",
+    );
   },
 });

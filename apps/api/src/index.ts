@@ -30,7 +30,10 @@ async function startServer(): Promise<void> {
       logger.info("MongoDB indexes created successfully");
     } catch (indexError) {
       // Log error but don't crash the application
-      logger.error("Failed to create MongoDB indexes, continuing startup", indexError);
+      logger.error(
+        "Failed to create MongoDB indexes, continuing startup",
+        indexError,
+      );
     }
 
     // Initialize MCP manager (Model Context Protocol)
@@ -39,7 +42,10 @@ async function startServer(): Promise<void> {
       logger.info("MCP manager initialized successfully");
     } catch (mcpError) {
       // Log error but don't crash the application
-      logger.error("Failed to initialize MCP manager, continuing startup", mcpError);
+      logger.error(
+        "Failed to initialize MCP manager, continuing startup",
+        mcpError,
+      );
     }
   } catch (error) {
     logger.error("Failed to establish initial database connections", error);

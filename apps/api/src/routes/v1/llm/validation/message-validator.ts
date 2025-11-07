@@ -2,7 +2,7 @@ import { validateUIMessages } from "ai";
 import type { BasicUIMessage } from "../messages";
 
 export async function validateMessages(
-  messages: unknown[]
+  messages: unknown[],
 ): Promise<BasicUIMessage[]> {
   // Use AI SDK validation
   const validated = await validateUIMessages({ messages });

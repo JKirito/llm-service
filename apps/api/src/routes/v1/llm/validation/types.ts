@@ -18,7 +18,7 @@ export class RequestValidationError extends Error {
   constructor(
     message: string,
     public field: string,
-    public code: string
+    public code: string,
   ) {
     super(message);
     this.name = "RequestValidationError";

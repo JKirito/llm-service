@@ -58,7 +58,7 @@ export interface PersistInteractionParams {
  * ```
  */
 export async function persistInteraction(
-  params: PersistInteractionParams
+  params: PersistInteractionParams,
 ): Promise<string> {
   const {
     conversationId,
@@ -123,7 +123,7 @@ export async function persistInteraction(
 
     // Re-throw with context
     throw new Error(
-      `Failed to persist interaction ${messageId}: ${error instanceof Error ? error.message : "Unknown error"}`
+      `Failed to persist interaction ${messageId}: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 }

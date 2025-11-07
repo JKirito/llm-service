@@ -32,7 +32,7 @@ export interface CapturedData {
  * Streams to client via SSE and caches to Redis
  */
 export async function handleStreamingRequest(
-  config: StreamConfig
+  config: StreamConfig,
 ): Promise<Response> {
   const {
     messageId,
@@ -59,12 +59,17 @@ export async function handleStreamingRequest(
 
   // Initialize Redis stream for caching (side effect)
   // Determine model name for metadata
-  const modelName = typeof model === "object" && model !== null && "modelId" in model
-    ? String(model.modelId)
-    : "unknown";
+  const modelName =
+    typeof model === "object" && model !== null && "modelId" in model
+      ? String(model.modelId)
+      : "unknown";
 
-  await initializeStream(messageId, conversationId || "unknown", modelName).catch((err) =>
-    logger.error("Failed to initialize Redis stream cache", err)
+  await initializeStream(
+    messageId,
+    conversationId || "unknown",
+    modelName,
+  ).catch((err) =>
+    logger.error("Failed to initialize Redis stream cache", err),
   );
 
   // Use provided capturedData or create new one
@@ -73,8 +78,6 @@ export async function handleStreamingRequest(
 
   const stream = createUIMessageStream<LLMUIMessage>({
     async execute({ writer }) {
-      let streamSources: MessageSource[] | undefined;
-
       try {
         // Send initial notification (transient)
         writer.write({
@@ -130,19 +133,24 @@ export async function handleStreamingRequest(
           abortSignal: request.signal,
           onChunk: ({ chunk }) => {
             // Check for cancellation (AbortSignal is read-only, so we just log)
-            isStreamCancelled(messageId).then((cancelled) => {
-              if (cancelled) {
-                logger.info("Stream cancelled", { messageId });
-              }
-            }).catch((err) => logger.error("Failed to check cancellation", err));
+            isStreamCancelled(messageId)
+              .then((cancelled) => {
+                if (cancelled) {
+                  logger.info("Stream cancelled", { messageId });
+                }
+              })
+              .catch((err) =>
+                logger.error("Failed to check cancellation", err),
+              );
 
             // Side effect: Cache chunks to Redis
-            if (
-              chunk.type === "text-delta" &&
-              typeof chunk.text === "string"
-            ) {
-              writeChunk(messageId, conversationId || "unknown", chunk.text).catch((err) =>
-                logger.error("Failed to cache chunk to Redis", err)
+            if (chunk.type === "text-delta" && typeof chunk.text === "string") {
+              writeChunk(
+                messageId,
+                conversationId || "unknown",
+                chunk.text,
+              ).catch((err) =>
+                logger.error("Failed to cache chunk to Redis", err),
               );
             }
           },
@@ -189,8 +197,6 @@ export async function handleStreamingRequest(
           }
 
           if (extractedSources.length > 0) {
-            streamSources = extractedSources;
-
             // Write sources as custom data part
             writer.write({
               type: "data-sources",
@@ -202,8 +208,12 @@ export async function handleStreamingRequest(
             });
 
             // Side effect: Cache to Redis
-            writeSources(messageId, conversationId || "unknown", extractedSources).catch((err) =>
-              logger.error("Failed to cache sources to Redis", err)
+            writeSources(
+              messageId,
+              conversationId || "unknown",
+              extractedSources,
+            ).catch((err) =>
+              logger.error("Failed to cache sources to Redis", err),
             );
           }
         }
@@ -226,7 +236,7 @@ export async function handleStreamingRequest(
           writeMetadata(messageId, conversationId || "unknown", {
             usage,
           }).catch((err) =>
-            logger.error("Failed to cache metadata to Redis", err)
+            logger.error("Failed to cache metadata to Redis", err),
           );
         }
 
@@ -243,7 +253,7 @@ export async function handleStreamingRequest(
 
         // Side effect: Mark Redis stream as complete
         completeStream(messageId, conversationId || "unknown").catch((err) =>
-          logger.error("Failed to mark Redis stream as complete", err)
+          logger.error("Failed to mark Redis stream as complete", err),
         );
 
         // Send completion notification (transient)
@@ -283,8 +293,8 @@ export async function handleStreamingRequest(
         });
 
         // Side effect: Mark Redis stream as error
-        errorStream(messageId, conversationId || "unknown", errorMessage).catch((err) =>
-          logger.error("Failed to mark Redis stream as error", err)
+        errorStream(messageId, conversationId || "unknown", errorMessage).catch(
+          (err) => logger.error("Failed to mark Redis stream as error", err),
         );
 
         throw error; // Re-throw for AI SDK to handle

@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { mcpManager } from "./mcp-manager";
 import { createLogger } from "@llm-service/logger";
+import type { FlexibleSchema } from "@ai-sdk/provider-utils";
 
 const logger = createLogger("MCP_ADAPTER");
 
@@ -12,13 +13,13 @@ export function createMCPToolAdapter(toolKey: string) {
   }
 
   // Convert MCP JSON Schema to Zod schema
-  const zodSchema = convertJsonSchemaToZod(toolInfo.inputSchema);
+  const zodSchema = convertJsonSchemaToZod(
+    toolInfo.inputSchema,
+  ) as unknown as FlexibleSchema<Record<string, unknown>>;
 
-  // Note: We use 'as any' here because dynamically created Zod schemas
-  // from JSON Schema don't satisfy AI SDK's strict FlexibleSchema type requirements
   return tool({
     description: toolInfo.description || `MCP tool: ${toolInfo.toolName}`,
-    inputSchema: zodSchema as any,
+    inputSchema: zodSchema,
     async execute(args: Record<string, unknown>) {
       try {
         const result = await mcpManager.executeTool(toolKey, args);
@@ -28,10 +29,10 @@ export function createMCPToolAdapter(toolKey: string) {
         throw error;
       }
     },
-  } as any);
+  });
 }
 
-function convertJsonSchemaToZod(jsonSchema: unknown): z.ZodType {
+function convertJsonSchemaToZod(jsonSchema: unknown): z.ZodTypeAny {
   if (!jsonSchema || typeof jsonSchema !== "object") {
     return z.any();
   }
@@ -63,7 +64,9 @@ function convertJsonSchemaToZod(jsonSchema: unknown): z.ZodType {
       stringSchema = stringSchema.describe(schema.description);
     }
     if (schema.enum && Array.isArray(schema.enum)) {
-      const enumValues = schema.enum.filter((v): v is string => typeof v === "string");
+      const enumValues = schema.enum.filter(
+        (v): v is string => typeof v === "string",
+      );
       if (enumValues.length > 0) {
         return z.enum([enumValues[0], ...enumValues.slice(1)]);
       }

@@ -7,7 +7,6 @@ import {
   getAllStreamEntries,
   cancelStream,
   type StreamMetadata,
-  type StreamEntry,
 } from "./stream-service";
 
 const logger = createLogger("STREAM_ROUTES");
@@ -48,16 +47,11 @@ export const getStreamStatusHandler: RouteHandler = async (req) => {
 
     return Response.json(responsePayload);
   } catch (error) {
-    logger.error(
-      `Failed to get stream status for message ${messageId}`,
-      error,
-    );
+    logger.error(`Failed to get stream status for message ${messageId}`, error);
     const response: ApiResponse = {
       success: false,
       error:
-        error instanceof Error
-          ? error.message
-          : "Failed to get stream status",
+        error instanceof Error ? error.message : "Failed to get stream status",
     };
     return Response.json(response, { status: 500 });
   }
@@ -111,14 +105,10 @@ export const cancelStreamHandler: RouteHandler = async (req) => {
 
     return Response.json(responsePayload);
   } catch (error) {
-    logger.error(
-      `Failed to cancel stream for message ${messageId}`,
-      error,
-    );
+    logger.error(`Failed to cancel stream for message ${messageId}`, error);
     const response: ApiResponse = {
       success: false,
-      error:
-        error instanceof Error ? error.message : "Failed to cancel stream",
+      error: error instanceof Error ? error.message : "Failed to cancel stream",
     };
     return Response.json(response, { status: 500 });
   }
@@ -263,18 +253,14 @@ export const subscribeToStreamHandler: RouteHandler = async (req) => {
             req.signal.addEventListener("abort", () => {
               clearInterval(pollInterval);
               controller.close();
-              logger.info(
-                `Client disconnected from stream ${messageId}`,
-              );
+              logger.info(`Client disconnected from stream ${messageId}`);
             });
           }
         } catch (error) {
           logger.error("Error in stream handler", error);
           sendSSE("error", {
             error:
-              error instanceof Error
-                ? error.message
-                : "Stream handler error",
+              error instanceof Error ? error.message : "Stream handler error",
           });
           controller.close();
         }

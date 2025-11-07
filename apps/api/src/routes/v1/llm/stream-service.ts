@@ -91,10 +91,7 @@ export async function initializeStream(
   const cancellationKey = getCancellationKey(messageId);
 
   // Delete any existing stream data to prevent old entries from appearing
-  await Promise.all([
-    redis.del(streamKey),
-    redis.del(cancellationKey),
-  ]);
+  await Promise.all([redis.del(streamKey), redis.del(cancellationKey)]);
 
   // Create fresh metadata
   const metadata: StreamMetadata = {
@@ -107,7 +104,9 @@ export async function initializeStream(
   };
 
   await redis.setex(metadataKey, 3600, JSON.stringify(metadata)); // Expire in 1 hour
-  logger.info(`Initialized stream for message ${messageId} in conversation ${conversationId} (cleaned old data)`);
+  logger.info(
+    `Initialized stream for message ${messageId} in conversation ${conversationId} (cleaned old data)`,
+  );
 }
 
 /**
@@ -212,7 +211,10 @@ export async function writeSources(
 /**
  * Mark stream as completed
  */
-export async function completeStream(messageId: string, conversationId: string): Promise<void> {
+export async function completeStream(
+  messageId: string,
+  conversationId: string,
+): Promise<void> {
   const redis = getRedisClient();
   const streamKey = getStreamKey(messageId);
   const metadataKey = getMetadataKey(messageId);
@@ -247,7 +249,9 @@ export async function completeStream(messageId: string, conversationId: string):
   // Set stream expiration
   await redis.expire(streamKey, 3600); // Expire in 1 hour
 
-  logger.info(`Completed stream for message ${messageId} in conversation ${conversationId}`);
+  logger.info(
+    `Completed stream for message ${messageId} in conversation ${conversationId}`,
+  );
 }
 
 /**
@@ -294,7 +298,9 @@ export async function errorStream(
   // Set stream expiration
   await redis.expire(streamKey, 3600);
 
-  logger.error(`Error in stream for message ${messageId} in conversation ${conversationId}: ${error}`);
+  logger.error(
+    `Error in stream for message ${messageId} in conversation ${conversationId}: ${error}`,
+  );
 }
 
 /**
@@ -323,9 +329,7 @@ export async function cancelStream(messageId: string): Promise<void> {
 /**
  * Check if stream is cancelled
  */
-export async function isStreamCancelled(
-  messageId: string,
-): Promise<boolean> {
+export async function isStreamCancelled(messageId: string): Promise<boolean> {
   const redis = getRedisClient();
   const cancellationKey = getCancellationKey(messageId);
   const result = await redis.get(cancellationKey);
@@ -381,7 +385,7 @@ export async function readStream(
     const typedResults = results as RedisXReadResponse;
 
     // Parse Redis stream response
-    for (const [_, streamEntries] of typedResults) {
+    for (const [, streamEntries] of typedResults) {
       if (Array.isArray(streamEntries)) {
         for (const [id, fields] of streamEntries) {
           // fields is an array like ['entry', '{"type":"chunk",...}']
@@ -391,9 +395,7 @@ export async function readStream(
               const entry = JSON.parse(entryData) as StreamEntry;
               entries.push({ id, entry });
             } catch (parseError) {
-              logger.error(
-                `Failed to parse stream entry ${id}: ${parseError}`,
-              );
+              logger.error(`Failed to parse stream entry ${id}: ${parseError}`);
             }
           }
         }
@@ -402,10 +404,7 @@ export async function readStream(
 
     return entries;
   } catch (error) {
-    logger.error(
-      `Failed to read stream for message ${messageId}:`,
-      error,
-    );
+    logger.error(`Failed to read stream for message ${messageId}:`, error);
     throw error;
   }
 }

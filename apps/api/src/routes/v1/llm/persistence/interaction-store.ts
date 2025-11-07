@@ -19,7 +19,7 @@ export async function getInteractionsCollection(): Promise<
   } catch (error) {
     logger.error("Failed to get interactions collection", { error });
     throw new Error(
-      `Failed to get interactions collection: ${error instanceof Error ? error.message : "Unknown error"}`
+      `Failed to get interactions collection: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 }
@@ -28,7 +28,9 @@ export async function getInteractionsCollection(): Promise<
  * Create and save an interaction to the database
  * Returns the MongoDB _id of the inserted document
  */
-export async function createInteraction(data: InteractionData): Promise<string> {
+export async function createInteraction(
+  data: InteractionData,
+): Promise<string> {
   try {
     const collection = await getInteractionsCollection();
 
@@ -40,9 +42,7 @@ export async function createInteraction(data: InteractionData): Promise<string> 
       completedAt: now,
     };
 
-    const result = await collection.insertOne(
-      document as InteractionDocument
-    );
+    const result = await collection.insertOne(document as InteractionDocument);
 
     logger.info("Interaction created", {
       messageId: data.messageId,
@@ -59,7 +59,7 @@ export async function createInteraction(data: InteractionData): Promise<string> 
       conversationId: data.conversationId,
     });
     throw new Error(
-      `Failed to create interaction ${data.messageId}: ${error instanceof Error ? error.message : "Unknown error"}`
+      `Failed to create interaction ${data.messageId}: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 }
@@ -68,7 +68,7 @@ export async function createInteraction(data: InteractionData): Promise<string> 
  * List all interactions for a conversation, sorted by creation time
  */
 export async function listInteractionsByConversation(
-  conversationId: string
+  conversationId: string,
 ): Promise<InteractionDocument[]> {
   try {
     const collection = await getInteractionsCollection();
@@ -90,7 +90,7 @@ export async function listInteractionsByConversation(
       conversationId,
     });
     throw new Error(
-      `Failed to list interactions for conversation ${conversationId}: ${error instanceof Error ? error.message : "Unknown error"}`
+      `Failed to list interactions for conversation ${conversationId}: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 }
@@ -99,7 +99,7 @@ export async function listInteractionsByConversation(
  * Find a specific interaction by message ID
  */
 export async function findInteractionByMessageId(
-  messageId: string
+  messageId: string,
 ): Promise<InteractionDocument | null> {
   try {
     const collection = await getInteractionsCollection();
@@ -122,7 +122,7 @@ export async function findInteractionByMessageId(
       messageId,
     });
     throw new Error(
-      `Failed to find interaction by messageId ${messageId}: ${error instanceof Error ? error.message : "Unknown error"}`
+      `Failed to find interaction by messageId ${messageId}: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 }
@@ -138,26 +138,23 @@ export async function createIndexes(): Promise<void> {
     // Compound index for efficient conversation-based queries
     await collection.createIndex(
       { conversationId: 1, createdAt: 1 },
-      { name: "conversationId_createdAt" }
+      { name: "conversationId_createdAt" },
     );
 
     // Unique index on messageId to prevent duplicate interactions
     await collection.createIndex(
       { messageId: 1 },
-      { unique: true, name: "messageId_unique" }
+      { unique: true, name: "messageId_unique" },
     );
 
     // Index for time-based queries (recent interactions)
-    await collection.createIndex(
-      { createdAt: -1 },
-      { name: "createdAt_desc" }
-    );
+    await collection.createIndex({ createdAt: -1 }, { name: "createdAt_desc" });
 
     logger.info("Interactions collection indexes created successfully");
   } catch (error) {
     logger.error("Failed to create interactions indexes", { error });
     throw new Error(
-      `Failed to create interactions indexes: ${error instanceof Error ? error.message : "Unknown error"}`
+      `Failed to create interactions indexes: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 }

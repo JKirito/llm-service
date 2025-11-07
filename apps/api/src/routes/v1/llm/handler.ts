@@ -1,9 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import {
-  convertToModelMessages,
-  generateText,
-} from "ai";
-import { z } from "zod";
+import { convertToModelMessages, generateText } from "ai";
 import { createLogger } from "@llm-service/logger";
 import type { ApiResponse } from "@llm-service/types";
 import { config } from "../../../config";
@@ -20,11 +16,7 @@ import {
   findConversation,
   replaceConversationMessages,
 } from "./conversation-store";
-import { downloadFile } from "@llm-service/azure-storage";
 import { initializeAzureStorage } from "@llm-service/azure-storage";
-import { getFileUrlFromPath } from "../../../lib/storage-url";
-import { parseDocument } from "../../../lib/document-parser";
-import { uploadGeneratedImage } from "../../../lib/image-storage";
 import { SystemPromptBuilder } from "./system-prompt-builder";
 import type {
   DocumentContext,
@@ -32,9 +24,11 @@ import type {
   MessageFileReference,
   MessageSource,
 } from "./types";
-import { parseDocumentPath } from "./types";
 import { toolRegistry } from "./tools-registry";
-import { validateRequestBody, validateTools } from "./validation/request-validator";
+import {
+  validateRequestBody,
+  validateTools,
+} from "./validation/request-validator";
 import { validateMessages } from "./validation/message-validator";
 import { RequestValidationError } from "./validation/types";
 import { processDocuments } from "./documents/document-processor";
@@ -135,7 +129,6 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   }
 
   const {
-    messages: rawMessages,
     conversationId: conversationIdFromBody,
     model,
     modelParams,
@@ -148,7 +141,10 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   if (invalidTools.length > 0) {
     const response: ApiResponse = {
       success: false,
-      error: `Invalid tool names: ${invalidTools.join(", ")}. Available tools: ${toolRegistry.listAllTools().map(t => t.name).join(", ")}`,
+      error: `Invalid tool names: ${invalidTools.join(", ")}. Available tools: ${toolRegistry
+        .listAllTools()
+        .map((t) => t.name)
+        .join(", ")}`,
     };
     return Response.json(response, { status: 400 });
   }
@@ -195,11 +191,13 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       const processedDocs = await processDocuments(
         documentReferences,
         needsCodeInterpreter,
-        uploadFileToOpenAI
+        uploadFileToOpenAI,
       );
-      documentContexts = processedDocs.map(d => d.documentContext);
-      fileReferences = processedDocs.map(d => d.fileReference);
-      openAIFileIds = processedDocs.map(d => d.openAIFileId).filter((id): id is string => id !== undefined);
+      documentContexts = processedDocs.map((d) => d.documentContext);
+      fileReferences = processedDocs.map((d) => d.fileReference);
+      openAIFileIds = processedDocs
+        .map((d) => d.openAIFileId)
+        .filter((id): id is string => id !== undefined);
     } catch (error) {
       logger.error("Failed to process documents", error);
       const response: ApiResponse = {
@@ -214,7 +212,9 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   }
 
   // Filter out generate_image from requested tools (it's handled separately with runtime dependencies)
-  const registryTools = requestedTools.filter((tool) => tool !== "generate_image");
+  const registryTools = requestedTools.filter(
+    (tool) => tool !== "generate_image",
+  );
   const hasGenerateImage = requestedTools.includes("generate_image");
 
   // Get OpenAI tools with file IDs (for code_interpreter)
@@ -225,7 +225,6 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
           openAIFileIds.length > 0 ? openAIFileIds : undefined,
         )
       : undefined;
-
 
   const buildResult = buildMessagesFromBody(body);
   if (!buildResult.success) {
@@ -259,10 +258,7 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       : undefined;
 
   // Always add generate_image to available tools list
-  const allToolNames = [
-    ...(openAIToolNames || []),
-    "generate_image",
-  ];
+  const allToolNames = [...(openAIToolNames || []), "generate_image"];
 
   const enhancedSystemPrompt = builder.build({
     documents: documentContexts.length > 0 ? documentContexts : undefined,
@@ -385,13 +381,16 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
   if (hasGenerateImage && !streamRequested) {
     const response: ApiResponse = {
       success: false,
-      error: "The 'generate_image' tool requires streaming mode (stream: true). Please enable streaming to use image generation.",
+      error:
+        "The 'generate_image' tool requires streaming mode (stream: true). Please enable streaming to use image generation.",
     };
     return Response.json(response, { status: 400 });
   }
 
   if (streamRequested) {
-    const { handleStreamingRequest } = await import("./streaming/stream-orchestrator");
+    const { handleStreamingRequest } = await import(
+      "./streaming/stream-orchestrator"
+    );
 
     // Generate messageId for this streaming response
     // This enables concurrent requests within the same conversation
@@ -420,12 +419,14 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
       onFinish: async (event: unknown) => {
         try {
           // Type guard for event structure
-          const eventWithMessages = event as { messages: Array<{
-            role: string;
-            id?: string;
-            parts: Array<{ type: string; text?: string }>;
-            metadata?: Record<string, unknown>;
-          }> };
+          const eventWithMessages = event as {
+            messages: Array<{
+              role: string;
+              id?: string;
+              parts: Array<{ type: string; text?: string }>;
+              metadata?: Record<string, unknown>;
+            }>;
+          };
 
           // AI SDK messages only contain the assistant response
           // We need to combine with the original request messages
@@ -435,11 +436,13 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
 
           // Convert LLMUIMessage to BasicUIMessage for persistence
           // Extract only text parts (filter out reasoning, data parts, etc.)
-          const assistantMessagesWithUsage: BasicUIMessage[] = assistantMessages.map(
-            (msg, index) => {
+          const assistantMessagesWithUsage: BasicUIMessage[] =
+            assistantMessages.map((msg, index) => {
               // Extract only text parts from LLMUIMessage
               const textParts = msg.parts
-                .filter((part) => part.type === "text" && part.text !== undefined)
+                .filter(
+                  (part) => part.type === "text" && part.text !== undefined,
+                )
                 .map((part) => ({
                   type: "text" as const,
                   text: part.text || "",
@@ -463,13 +466,15 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
               // Use the pre-generated messageId for the first assistant message
               // This ensures consistency with the Redis cache key
               return {
-                id: index === 0 ? assistantMessageId : (msg.id || crypto.randomUUID()),
+                id:
+                  index === 0
+                    ? assistantMessageId
+                    : msg.id || crypto.randomUUID(),
                 role: "assistant" as const,
                 parts: textParts,
                 ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
               };
-            },
-          );
+            });
 
           // Build complete conversation: previous + user request + assistant response
           const completeConversation: BasicUIMessage[] = [
@@ -477,7 +482,10 @@ export const generateAnswerHandler: RouteHandler = async (req) => {
             ...assistantMessagesWithUsage, // Assistant's response from AI SDK with usage
           ];
 
-          await replaceConversationMessages(conversationId, completeConversation);
+          await replaceConversationMessages(
+            conversationId,
+            completeConversation,
+          );
           logger.info(
             `Persisted conversation ${conversationId} to MongoDB (${completeConversation.length} messages)`,
           );

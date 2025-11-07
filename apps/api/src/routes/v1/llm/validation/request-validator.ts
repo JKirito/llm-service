@@ -7,7 +7,7 @@ export function validateRequestBody(body: unknown): ValidatedRequest {
     throw new RequestValidationError(
       "Request body must be an object",
       "body",
-      "INVALID_BODY"
+      "INVALID_BODY",
     );
   }
 
@@ -18,7 +18,7 @@ export function validateRequestBody(body: unknown): ValidatedRequest {
     throw new RequestValidationError(
       "messages array is required and must not be empty",
       "messages",
-      "MISSING_MESSAGES"
+      "MISSING_MESSAGES",
     );
   }
 
@@ -38,7 +38,7 @@ export function validateRequestBody(body: unknown): ValidatedRequest {
       throw new RequestValidationError(
         "conversationId must be a non-empty string",
         "conversationId",
-        "INVALID_CONVERSATION_ID"
+        "INVALID_CONVERSATION_ID",
       );
     }
   }
@@ -46,8 +46,7 @@ export function validateRequestBody(body: unknown): ValidatedRequest {
   // Validate documentReferences
   const documentReferences = Array.isArray(record.documentReferences)
     ? record.documentReferences.filter(
-        (ref): ref is string =>
-          typeof ref === "string" && ref.trim() !== ""
+        (ref): ref is string => typeof ref === "string" && ref.trim() !== "",
       )
     : [];
 
@@ -61,7 +60,8 @@ export function validateRequestBody(body: unknown): ValidatedRequest {
 
   return {
     messages: record.messages,
-    conversationId: typeof conversationId === "string" ? conversationId.trim() : undefined,
+    conversationId:
+      typeof conversationId === "string" ? conversationId.trim() : undefined,
     model,
     modelParams,
     documentReferences,
@@ -79,7 +79,7 @@ export function parseModelParams(params: unknown): ModelParams {
   // Extract tools
   const tools = Array.isArray(p.tools)
     ? p.tools.filter(
-        (t): t is string => typeof t === "string" && t.trim() !== ""
+        (t): t is string => typeof t === "string" && t.trim() !== "",
       )
     : [];
 
@@ -114,7 +114,7 @@ export function parseModelParams(params: unknown): ModelParams {
 
 export async function validateTools(
   tools: string[],
-  toolRegistry: { getAllTools: () => Array<{ name: string }> }
+  toolRegistry: { getAllTools: () => Array<{ name: string }> },
 ): Promise<string[]> {
   const allTools = toolRegistry.getAllTools();
   const validToolNames = new Set(allTools.map((t) => t.name));

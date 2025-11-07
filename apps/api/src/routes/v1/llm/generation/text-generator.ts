@@ -26,7 +26,7 @@ export interface GenerateTextResult {
  * Uses AI SDK generateText()
  */
 export async function generateTextResponse(
-  config: GenerationConfig
+  config: GenerationConfig,
 ): Promise<GenerateTextResult> {
   const { model, messages, tools, temperature, reasoningEffort } = config;
 

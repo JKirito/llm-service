@@ -25,7 +25,7 @@ export interface ProcessedDocument {
 export async function processDocuments(
   documentReferences: string[],
   needsCodeInterpreter: boolean,
-  uploadToOpenAI: (buffer: Buffer, filename: string) => Promise<string>
+  uploadToOpenAI: (buffer: Buffer, filename: string) => Promise<string>,
 ): Promise<ProcessedDocument[]> {
   try {
     // Process documents in parallel (Azure download + OpenAI upload)
@@ -79,19 +79,14 @@ export async function processDocuments(
           openAIFileId,
         };
       } catch (error) {
-        logger.error(
-          `Failed to process document reference: ${docRef}`,
-          error,
-        );
+        logger.error(`Failed to process document reference: ${docRef}`, error);
         throw error;
       }
     });
 
     const results = await Promise.all(documentPromises);
 
-    logger.info(
-      `Successfully processed ${results.length} document(s)`,
-    );
+    logger.info(`Successfully processed ${results.length} document(s)`);
 
     return results;
   } catch (error) {
